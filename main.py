@@ -161,6 +161,10 @@ def index_knowledge_base(force_reindex: bool = False):
     else:
         print(f"共新增/更新 {total_added} 条记录")
 
+    # 构建中文内容bigram索引
+    print("构建中文内容索引...")
+    kb.metadata_db.build_content_bigram_index()
+
     print("=" * 50)
     print("索引完成! 启动交互模式...")
     return kb

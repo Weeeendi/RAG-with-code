@@ -322,6 +322,65 @@ class MetadataDB:
             except sqlite3.OperationalError:
                 pass
 
+            # Content bigram index table for fast Chinese content lookup
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS content_bigram_index (
+                    bigram TEXT,
+                    file_path TEXT,
+                    PRIMARY KEY (bigram, file_path)
+                )
+            ''')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_bigram ON content_bigram_index(bigram)')
+
+    def build_content_bigram_index(self):
+        """从现有knowledge_items构建content bigram索引"""
+        import re
+        with sqlite3.connect(self.db_path) as conn:
+            # 清空旧索引
+            conn.execute('DELETE FROM content_bigram_index')
+
+            # 获取所有文件及其内容
+            cursor = conn.execute('''
+                SELECT DISTINCT source_file, content FROM knowledge_items
+                WHERE content IS NOT NULL AND content != ''
+            ''')
+
+            entries = []
+            file_count = 0
+            for file_path, content in cursor:
+                if not content:
+                    continue
+                file_count += 1
+                # 提取中文bigrams
+                chinese_chars = re.findall(r'[一-鿿]', content.lower())
+                bigrams = set()
+                for i in range(len(chinese_chars) - 1):
+                    bigrams.add(chinese_chars[i] + chinese_chars[i+1])
+
+                for bg in bigrams:
+                    entries.append((bg, file_path))
+
+            # 批量插入
+            if entries:
+                conn.executemany(
+                    'INSERT OR IGNORE INTO content_bigram_index (bigram, file_path) VALUES (?, ?)',
+                    entries
+                )
+            conn.commit()
+            print(f"[BigramIndex] Built index with {len(entries)} entries from {file_count} files")
+
+    def get_files_with_chinese_bigrams(self, bigrams: List[str]) -> List[str]:
+        """根据中文bigrams查询包含这些内容的文件"""
+        if not bigrams:
+            return []
+        placeholders = ','.join('?' * len(bigrams))
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(f'''
+                SELECT DISTINCT file_path FROM content_bigram_index
+                WHERE bigram IN ({placeholders})
+            ''', bigrams)
+            return [row[0] for row in cursor]
+
     def insert_item(self, item: KnowledgeItem) -> bool:
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -994,20 +1053,41 @@ class LazyVectorStore:
 
         query_keywords = expanded_keywords
 
-        if category == 'protocol':
-            all_files = self.db.get_files_by_category('protocol')
-        elif category == 'c_code':
-            all_files = self.db.get_files_by_category('c_code')
-        elif category == 'log':
-            all_files = self.db.get_files_by_category('log')
+        # 判断是否为纯中文查询（无英文token）
+        is_pure_chinese_query = len(query_tokens) == 0 and len(chinese_chars) > 0
+
+        # 纯中文查询：使用bigram索引直接定位文件（O(1)查找）
+        if is_pure_chinese_query:
+            target_files = self.db.get_files_with_chinese_bigrams(list(chinese_bigrams))
+            if category:
+                # 进一步按category过滤
+                category_files = set(self.db.get_files_by_category(category))
+                target_files = [f for f in target_files if f in category_files]
+            # 如果bigram索引找到了文件，直接用这些文件
+            if target_files:
+                all_files = target_files
+            else:
+                # bigram索引没找到，回退到原有逻辑
+                if category == 'protocol':
+                    all_files = self.db.get_files_by_category('protocol')
+                elif category == 'c_code':
+                    all_files = self.db.get_files_by_category('c_code')
+                elif category == 'log':
+                    all_files = self.db.get_files_by_category('log')
+                else:
+                    all_files = self.db.get_all_files()
         else:
-            all_files = self.db.get_all_files()
+            if category == 'protocol':
+                all_files = self.db.get_files_by_category('protocol')
+            elif category == 'c_code':
+                all_files = self.db.get_files_by_category('c_code')
+            elif category == 'log':
+                all_files = self.db.get_files_by_category('log')
+            else:
+                all_files = self.db.get_all_files()
 
         file_scores = []
         file_items_cache = {}
-
-        # 判断是否为纯中文查询（无英文token）
-        is_pure_chinese_query = len(query_tokens) == 0 and len(chinese_chars) > 0
 
         for file_path in all_files:
             if time.time() - t0 > TIMEOUT_SEC:
