@@ -1,6 +1,7 @@
 import os
 
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "sk-cp-4tcqbwOjW2yG02e1EFezD-uVqdbCwtC-NhRxemFIfZ9GoVnjJaIucZiRh1Iggi3_Pn12PP2oFSeChnSj_ibVC4Fz0L5lDmmOTie_3GEcGjLn-9paZNzbVkE")
+MINIMAX_GROUP_ID = os.getenv("MINIMAX_GROUP_ID", "2043975034527027942")
+MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "sk-cp-etkigx38MLrNIxi4D8FsUBWaq2slx7yxoRNdo4XopoPriY1dlxuVXvug-9CmTY17sk7S3WwV5HLV2kppVTKIG42XhZggQ8e3GTkpNL-2ZPPapsTdOv1hxSE")
 MINIMAX_BASE_URL = "https://api.minimax.chat/v1"
 
 PADDLEOCR_TOKEN = os.getenv("PADDLEOCR_TOKEN", "29d2c8c889390dd177ef650c0a843e2b504a4266")

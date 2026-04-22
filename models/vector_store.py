@@ -332,6 +332,20 @@ class MetadataDB:
             ''')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_bigram ON content_bigram_index(bigram)')
 
+            # FTS5 virtual table for full-text search
+            # Only create if doesn't exist (don't drop on every init)
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='content_fts'"
+            )
+            if not cursor.fetchone():
+                conn.execute('''
+                    CREATE VIRTUAL TABLE content_fts USING fts5(
+                        file_path,
+                        content,
+                        tokenize="unicode61"
+                    )
+                ''')
+
     def build_content_bigram_index(self):
         """从现有knowledge_items构建content bigram索引"""
         import re
@@ -380,6 +394,74 @@ class MetadataDB:
                 WHERE bigram IN ({placeholders})
             ''', bigrams)
             return [row[0] for row in cursor]
+
+    def build_content_fts_index(self):
+        """构建FTS5全文搜索索引"""
+        with sqlite3.connect(self.db_path) as conn:
+            # 清空旧索引
+            conn.execute('DELETE FROM content_fts')
+
+            # 按文件聚合所有内容
+            cursor = conn.execute('''
+                SELECT source_file, GROUP_CONCAT(content, ' ') as full_content
+                FROM knowledge_items
+                WHERE content IS NOT NULL AND content != '' AND source_file IS NOT NULL
+                GROUP BY source_file
+            ''')
+
+            entries = []
+            for file_path, content in cursor:
+                if content and file_path:
+                    entries.append((file_path, content))
+
+            # 批量插入
+            if entries:
+                conn.executemany(
+                    'INSERT INTO content_fts (file_path, content) VALUES (?, ?)',
+                    entries
+                )
+            conn.commit()
+            print(f"[FTS5] Built index with {len(entries)} files")
+
+    def search_fts(self, query: str) -> List[str]:
+        """使用FTS5进行全文搜索，返回匹配的文件路径"""
+        if not query or not query.strip():
+            return []
+        with sqlite3.connect(self.db_path) as conn:
+            try:
+                # 构造FTS5 MATCH查询
+                # 对于中文，将连续的中文字符串拆分为单个字符+bigram组合
+                # 这样可以提高召回率（即使部分匹配也能找到）
+                import re
+
+                fts_queries = []
+
+                # 分割混合字符串为单独token（按ASCII/非ASCII边界）
+                tokens = re.findall(r'[A-Za-z0-9_]+|[^\sA-Za-z0-9_]+', query)
+
+                for token in tokens:
+                    if re.search(r'[一-鿿]', token):
+                        # 中文token：拆分为单个字符和2-gram及以上组合
+                        # 例如 "骑行记录" -> "骑*" OR "行*" OR "记*" OR "录*" OR "骑行*" OR "行记录*" ...
+                        chars = list(token)
+                        for i in range(len(chars)):
+                            fts_queries.append(f'{chars[i]}*')
+                        for n in range(2, min(len(chars) + 1, 5)):
+                            for i in range(len(chars) - n + 1):
+                                fts_queries.append(''.join(chars[i:i+n]) + '*')
+                    else:
+                        # 英文token，使用前缀匹配
+                        fts_queries.append(f'{token}*')
+
+                fts_query = ' OR '.join(fts_queries)
+                cursor = conn.execute(f'''
+                    SELECT file_path FROM content_fts
+                    WHERE content MATCH '{fts_query}'
+                ''')
+                return [row[0] for row in cursor]
+            except Exception as e:
+                print(f"[FTS5] Search error: {e}")
+                return []
 
     def insert_item(self, item: KnowledgeItem) -> bool:
         try:
@@ -533,12 +615,14 @@ class MetadataDB:
 
     def get_items_by_file(self, file_path: str) -> List[KnowledgeItem]:
         items = []
-        basename = file_path.replace('\\', '/').split('/')[-1]
+        # Normalize path separators for cross-platform compatibility
+        normalized_path = file_path.replace('\\', '/')
+        basename = normalized_path.split('/')[-1]
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute('''
                 SELECT * FROM knowledge_items WHERE source_file = ? OR source_file LIKE ?
-            ''', (file_path, f'%{basename}'))
+            ''', (normalized_path, f'%{basename}'))
             for row in cursor:
                 items.append(KnowledgeItem(
                     id=row['id'],
@@ -1053,38 +1137,50 @@ class LazyVectorStore:
 
         query_keywords = expanded_keywords
 
-        # 判断是否为纯中文查询（无英文token）
-        is_pure_chinese_query = len(query_tokens) == 0 and len(chinese_chars) > 0
-
-        # 纯中文查询：使用bigram索引直接定位文件（O(1)查找）
-        if is_pure_chinese_query:
-            target_files = self.db.get_files_with_chinese_bigrams(list(chinese_bigrams))
+        # 优先使用FTS5进行全文搜索
+        fts_files = self.db.search_fts(query)
+        if fts_files:
             if category:
-                # 进一步按category过滤
                 category_files = set(self.db.get_files_by_category(category))
-                target_files = [f for f in target_files if f in category_files]
-            # 如果bigram索引找到了文件，直接用这些文件
-            if target_files:
-                all_files = target_files
-            else:
-                # bigram索引没找到，回退到原有逻辑
-                if category == 'protocol':
-                    all_files = self.db.get_files_by_category('protocol')
-                elif category == 'c_code':
-                    all_files = self.db.get_files_by_category('c_code')
-                elif category == 'log':
-                    all_files = self.db.get_files_by_category('log')
+                fts_files = [f for f in fts_files if f in category_files]
+            # Pre-populate items cache and file_scores for FTS5 results
+            file_items_cache = {}
+            file_scores = []
+            business_docs = []
+            other_docs = []
+
+            # Separate business docs from other files
+            for fp in fts_files:
+                if 'protocol_docs' in fp or 'business_docs' in fp:
+                    business_docs.append(fp)
                 else:
-                    all_files = self.db.get_all_files()
+                    other_docs.append(fp)
+
+            # Process business docs first (up to max_files * 3)
+            for fp in business_docs[:max_files * 3]:
+                items = self.db.get_items_by_file(fp)
+                if items:
+                    file_items_cache[fp] = items
+                    file_scores.append((fp, 1001.0, len(items)))
+
+            # Then fill in with other docs (up to max_files)
+            for fp in other_docs[:max_files]:
+                items = self.db.get_items_by_file(fp)
+                if items:
+                    file_items_cache[fp] = items
+                    file_scores.append((fp, 1.0, len(items)))
+
+            file_scores.sort(key=lambda x: (x[1], -x[2]), reverse=True)
+            return [f[0] for f in file_scores[:max_files]], file_items_cache
+
+        if category == 'protocol':
+            all_files = self.db.get_files_by_category('protocol')
+        elif category == 'c_code':
+            all_files = self.db.get_files_by_category('c_code')
+        elif category == 'log':
+            all_files = self.db.get_files_by_category('log')
         else:
-            if category == 'protocol':
-                all_files = self.db.get_files_by_category('protocol')
-            elif category == 'c_code':
-                all_files = self.db.get_files_by_category('c_code')
-            elif category == 'log':
-                all_files = self.db.get_files_by_category('log')
-            else:
-                all_files = self.db.get_all_files()
+            all_files = self.db.get_all_files()
 
         file_scores = []
         file_items_cache = {}
@@ -1127,38 +1223,20 @@ class LazyVectorStore:
             id_score = len(query_keywords & id_keywords)
             score = max(score, id_score)
 
-            # For pure Chinese queries, require exact keyword match (not substring)
+            # Require at least one Chinese char from query to be present in filename or id_content
             # This avoids false positives like 'log' matching 'keylog_export'
-            if is_pure_chinese_query:
-                # Only use strict exact match on Chinese chars in filename
-                if not any(kw in filename for kw in chinese_bigrams):
+            if chinese_chars:
+                filename_lower = filename.lower()
+                id_content_lower = id_content.lower()
+                has_chinese_match = any(
+                    char in filename_lower or char in id_content_lower
+                    for char in chinese_chars
+                )
+                if not has_chinese_match:
                     score = 0
 
             if score > 0:
                 file_scores.append((file_path, score, len(items)))
-
-        # For pure Chinese queries, also do content-based matching regardless of file_scores count
-        content_keywords = [t for t in query_tokens if len(t) >= 2] + [t for t in chinese_bigrams if len(t) >= 2]
-        if content_keywords and (is_pure_chinese_query or len(file_scores) < max_files):
-            for file_path in all_files:
-                if any(f[0] == file_path for f in file_scores):
-                    continue
-                items = file_items_cache.get(file_path) or self.db.get_items_by_file(file_path)
-                if items:
-                    if category and items[0].category != category:
-                        continue
-                    # Optimization: skip files with no Chinese content (for pure Chinese queries)
-                    # Most c_code files don't contain Chinese, so skip them early
-                    if is_pure_chinese_query:
-                        first_content = items[0].content if items else ''
-                        if not re.search(r'[一-鿿]', first_content):
-                            continue
-                    full_content = ' '.join([item.content.lower() for item in items])
-                    if any(kw in full_content for kw in content_keywords):
-                        file_scores.append((file_path, 0.5, len(items)))
-                        # Early termination: if we have enough business docs, stop scanning
-                        if len(file_scores) >= max_files * 2:
-                            break
 
         def sort_key(x):
             score = x[1]
@@ -1201,23 +1279,28 @@ class LazyVectorStore:
         TIMEOUT_SEC = 30
 
         BUSINESS_DOC_WEIGHT = 10.0
-        BUSINESS_DOC_TYPES = {'business_doc'}
+        BUSINESS_DOC_TYPES = {'business_doc', 'protocol_doc'}
 
         expander = QueryExpander()
         expanded_queries = expander.expand(query)[:1]
         structured_query = expander.build_structured_query(query)
 
-        relevant_files = set()
+        # Use ordered dict to preserve FTS5 priority (business docs first)
+        import collections
+        relevant_files_ordered = collections.OrderedDict()
         shared_items_cache = {}
         for eq in expanded_queries:
             if time.time() - t0 > TIMEOUT_SEC:
                 break
             files, items_cache = self.find_relevant_files(eq, category, max_files=20)
-            relevant_files.update(files)
+            # Preserve order: first occurrence of each file is kept
+            for f in files:
+                if f not in relevant_files_ordered:
+                    relevant_files_ordered[f] = True
             for f, items in items_cache.items():
                 if f not in shared_items_cache:
                     shared_items_cache[f] = items
-        relevant_files = list(relevant_files)[:20]
+        relevant_files = list(relevant_files_ordered.keys())[:20]
         item_map = []
         file_item_ranges = []
         doc_id_to_info = {}
@@ -1354,8 +1437,18 @@ class LazyVectorStore:
                     'score': float(rrf_score),
                     'source': item_info['source'],
                     'title': item_info['title'],
-                    'content_preview': item_info['content'][:300]
+                    'content_preview': item_info['content'][:800]
                 })
+
+        # Deduplicate by source file - keep highest scoring result per file
+        seen_sources = {}
+        for r in final_results:
+            src = r['source']
+            if src not in seen_sources or r['score'] > seen_sources[src]['score']:
+                seen_sources[src] = r
+
+        # Re-sort by score
+        final_results = sorted(seen_sources.values(), key=lambda x: x['score'], reverse=True)
 
         if len(final_results) > 3:
             try:
