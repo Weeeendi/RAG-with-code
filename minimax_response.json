@@ -1,0 +1,47 @@
+{
+  "id": "06340efcc8615ca241d68b5af91e1a13",
+  "choices": [
+    {
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "message": {
+        "content": "<think>\nThe user wants me to extract text and tables from an image at the given URL. Let me use the MiniMax-VLM function to analyze the image.\n</think>\n\n\n",
+        "role": "assistant",
+        "name": "MiniMax AI",
+        "tool_calls": [
+          {
+            "id": "call_function_qpy19c3sfq9t_1",
+            "type": "function",
+            "function": {
+              "name": "MiniMax-VLM",
+              "arguments": "{\"image_url\": \"https://minimax-algeng-chat-tts.oss-cn-wulanchabu.aliyuncs.com/ccv2%2F2026-04-19%2FMiniMax-M2.7%2F2032360526775853620%2F96223fcf096cf6ddbb59e7eaf8ad1f0bb6c8f3514898261afb5834afb035cb11..png?Expires=1776692624&OSSAccessKeyId=LTAI5tGLnRTkBjLuYPjNcKQ8&Signature=MRWZ0s0pc3Ixlmb40QCPXMYO34Q%3D\"}"
+            },
+            "index": 0
+          }
+        ],
+        "audio_content": ""
+      }
+    }
+  ],
+  "created": 1776606204,
+  "model": "MiniMax-M2.7",
+  "object": "chat.completion",
+  "usage": {
+    "total_tokens": 565,
+    "total_characters": 0,
+    "prompt_tokens": 355,
+    "completion_tokens": 210,
+    "completion_tokens_details": {
+      "reasoning_tokens": 35
+    }
+  },
+  "input_sensitive": false,
+  "output_sensitive": false,
+  "input_sensitive_type": 0,
+  "output_sensitive_type": 0,
+  "output_sensitive_int": 0,
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": ""
+  }
+}
