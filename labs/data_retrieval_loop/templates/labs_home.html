@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库管理</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: #333; }
+
+        .layout { display: flex; min-height: 100vh; }
+
+        /* Sidebar */
+        .sidebar { width: 60px; background: #1a1a1a; color: #fff; position: fixed; height: 100vh; display: flex; flex-direction: column; align-items: center; padding-top: 20px; }
+        .sidebar-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; margin-bottom: 12px; transition: all 0.2s; font-size: 20px; }
+        .sidebar-icon:hover { background: rgba(255,255,255,0.1); }
+        .sidebar-icon.active { background: #3b82f6; }
+
+        /* Main */
+        .main { margin-left: 60px; flex: 1; padding: 32px 48px; }
+
+        .page-title { font-size: 24px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
+        .page-subtitle { font-size: 14px; color: #888; margin-bottom: 24px; }
+
+        /* Stats Dashboard */
+        .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 800px; margin-bottom: 32px; }
+        .stat-card { background: #fff; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; align-items: center; gap: 16px; }
+        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .stat-icon.blue { background: #e0efff; }
+        .stat-icon.green { background: #e0fff0; }
+        .stat-icon.orange { background: #fff4e0; }
+        .stat-info { flex: 1; }
+        .stat-value { font-size: 28px; font-weight: 700; color: #1a1a1a; }
+        .stat-label { font-size: 13px; color: #888; margin-top: 2px; }
+
+        /* Section Title */
+        .section-title { font-size: 16px; font-weight: 600; color: #374151; margin-bottom: 16px; }
+
+        /* KB Grid */
+        .kb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+
+        .kb-card { background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); cursor: pointer; transition: all 0.2s; min-height: 160px; display: flex; flex-direction: column; position: relative; }
+        .kb-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.12); transform: translateY(-2px); }
+        .kb-card.new-card { border: 2px dashed #ddd; background: #fafafa; justify-content: center; align-items: center; }
+        .kb-card.new-card:hover { border-color: #3b82f6; background: #f0f7ff; }
+
+        .kb-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+        .kb-icon { width: 44px; height: 44px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+        .kb-info { flex: 1; min-width: 0; }
+        .kb-name { font-size: 16px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
+        .kb-business { font-size: 12px; color: #888; }
+        .kb-settings { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; border-radius: 8px; background: transparent; border: none; cursor: pointer; font-size: 16px; opacity: 0; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+        .kb-card:hover .kb-settings { opacity: 1; }
+        .kb-settings:hover { background: #f0f0f0; }
+
+        .kb-desc { font-size: 13px; color: #666; margin-bottom: 12px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .kb-meta { font-size: 12px; color: #888; display: flex; gap: 16px; margin-top: auto; }
+        .kb-meta span { display: flex; align-items: center; gap: 4px; }
+
+        .new-card-icon { font-size: 36px; color: #ccc; }
+        .new-card-text { font-size: 14px; color: #888; margin-top: 8px; }
+
+        /* Loading */
+        .loading { display: flex; align-items: center; justify-content: center; padding: 60px; color: #888; }
+        .loading::before { content: ''; width: 24px; height: 24px; border: 3px solid #e5e7eb; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 12px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Modal */
+        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal.visible { display: flex; }
+        .modal-content { background: #fff; border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; }
+        .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .modal-title { font-size: 18px; font-weight: 600; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; line-height: 1; }
+        .modal-close:hover { color: #333; }
+
+        /* Form */
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px; }
+        .form-input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s; }
+        .form-input:focus { border-color: #3b82f6; }
+        .form-textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; resize: vertical; min-height: 80px; font-family: inherit; }
+        .form-textarea:focus { border-color: #3b82f6; }
+
+        .form-hint { font-size: 12px; color: #888; margin-top: 4px; }
+
+        .form-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #3b82f6; color: #fff; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-secondary { background: #f3f4f6; color: #374151; }
+        .btn-secondary:hover { background: #e5e7eb; }
+    </style>
+</head>
+<body>
+<div class="layout">
+    <div class="sidebar">
+        <div class="sidebar-icon active" title="知识库">📚</div>
+    </div>
+
+    <div class="main">
+        <div class="page-title">知识库管理</div>
+        <div class="page-subtitle">统一管理多个知识库，配置Agent调用策略</div>
+
+        <!-- Global Stats -->
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-icon blue">📚</div>
+                <div class="stat-info">
+                    <div class="stat-value" id="stat-kb">-</div>
+                    <div class="stat-label">知识库总数</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon green">📄</div>
+                <div class="stat-info">
+                    <div class="stat-value" id="stat-docs">-</div>
+                    <div class="stat-label">文档总数</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon orange">📦</div>
+                <div class="stat-info">
+                    <div class="stat-value" id="stat-chunks">-</div>
+                    <div class="stat-label">分块总数</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-title">知识库列表</div>
+
+        <div class="kb-grid" id="kb-grid">
+            <div class="loading">加载中...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Create KB Modal -->
+<div class="modal" id="create-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">新建知识库</span>
+            <button class="modal-close" onclick="closeCreateModal()">&times;</button>
+        </div>
+        <div class="form-group">
+            <label class="form-label">知识库名称 *</label>
+            <input type="text" class="form-input" id="kb-name" placeholder="例如：云迹硬件开发知识库">
+        </div>
+        <div class="form-group">
+            <label class="form-label">所属业务线/用途</label>
+            <input type="text" class="form-input" id="kb-business" placeholder="例如：硬件设备部">
+        </div>
+        <div class="form-group">
+            <label class="form-label">AI简介（Agent描述）</label>
+            <textarea class="form-textarea" id="kb-description" placeholder="描述这个知识库的用途，帮助Agent在什么情况下调用它..."></textarea>
+            <div class="form-hint">将作为Agent检索时的判断依据</div>
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-secondary" onclick="closeCreateModal()">取消</button>
+            <button class="btn btn-primary" onclick="submitCreateKB()">创建</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit KB Modal -->
+<div class="modal" id="edit-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">配置知识库</span>
+            <button class="modal-close" onclick="closeEditModal()">&times;</button>
+        </div>
+        <input type="hidden" id="edit-kb-id">
+        <div class="form-group">
+            <label class="form-label">知识库名称</label>
+            <input type="text" class="form-input" id="edit-kb-name">
+        </div>
+        <div class="form-group">
+            <label class="form-label">所属业务线/用途</label>
+            <input type="text" class="form-input" id="edit-kb-business">
+        </div>
+        <div class="form-group">
+            <label class="form-label">AI简介（Agent描述）</label>
+            <textarea class="form-textarea" id="edit-kb-description" placeholder="描述这个知识库的用途，帮助Agent在什么情况下调用它..."></textarea>
+            <div class="form-hint">将作为Agent检索时的判断依据</div>
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-secondary" onclick="closeEditModal()">取消</button>
+            <button class="btn btn-primary" onclick="submitEditKB()">保存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = '/api/labs';
+
+    let kbsData = [];
+
+    // ========== Init ==========
+    async function init() {
+        await loadKBs();
+        await loadStats();
+    }
+
+    // ========== Load Stats ==========
+    async function loadStats() {
+        try {
+            const res = await fetch(API_BASE + '/kbs/stats');
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('stat-kb').textContent = data.data.total_assets || data.data.kb_count || 0;
+                document.getElementById('stat-docs').textContent = data.data.total_assets || data.data.doc_count || 0;
+                document.getElementById('stat-chunks').textContent = data.data.indexed_assets || data.data.chunk_count || 0;
+            }
+        } catch (e) {
+            console.error('Failed to load stats:', e);
+        }
+    }
+
+    // ========== Load KBs ==========
+    async function loadKBs() {
+        try {
+            const res = await fetch(API_BASE + '/kbs');
+            const data = await res.json();
+            kbsData = data.data || [];
+            renderKBs(kbsData);
+        } catch (e) {
+            document.getElementById('kb-grid').innerHTML = '<div style="color:#dc2626;padding:40px;">加载失败: ' + e.message + '</div>';
+        }
+    }
+
+    function renderKBs(kbs) {
+        const grid = document.getElementById('kb-grid');
+
+        if (!kbs.length) {
+            grid.innerHTML = '<div style="color:#888;padding:40px;text-align:center;">暂无知识库，点击下方"+"创建</div>';
+        }
+
+        let html = kbs.map(kb => `
+            <div class="kb-card" onclick="openKB('${kb.kb_id}')">
+                <button class="kb-settings" onclick="event.stopPropagation();openEditModal('${kb.kb_id}')" title="配置">⚙️</button>
+                <div class="kb-header">
+                    <div class="kb-icon">📦</div>
+                    <div class="kb-info">
+                        <div class="kb-name">${escapeHtml(kb.name)}</div>
+                        <div class="kb-business">${escapeHtml(kb.business || '未分类')}</div>
+                    </div>
+                </div>
+                <div class="kb-desc">${escapeHtml(kb.description || '暂无描述')}</div>
+                <div class="kb-meta">
+                    <span>📄 ${kb.doc_count || 0} 文档</span>
+                    <span>📅 ${kb.created_at || ''}</span>
+                </div>
+            </div>
+        `).join('');
+
+        // 新建按钮
+        html += `
+            <div class="kb-card new-card" onclick="openCreateModal()">
+                <div class="new-card-icon">+</div>
+                <div class="new-card-text">新建知识库</div>
+            </div>
+        `;
+
+        grid.innerHTML = html;
+    }
+
+    // ========== Create Modal ==========
+    function openCreateModal() {
+        document.getElementById('create-modal').classList.add('visible');
+        document.getElementById('kb-name').value = '';
+        document.getElementById('kb-business').value = '';
+        document.getElementById('kb-description').value = '';
+    }
+
+    function closeCreateModal() {
+        document.getElementById('create-modal').classList.remove('visible');
+    }
+
+    async function submitCreateKB() {
+        const name = document.getElementById('kb-name').value.trim();
+        if (!name) {
+            alert('请输入知识库名称');
+            return;
+        }
+
+        const data = {
+            name: name,
+            business: document.getElementById('kb-business').value.trim(),
+            description: document.getElementById('kb-description').value.trim()
+        };
+
+        try {
+            const res = await fetch(API_BASE + '/kbs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            const result = await res.json();
+            if (result.success) {
+                closeCreateModal();
+                await loadKBs();
+                await loadStats();
+            } else {
+                alert('创建失败: ' + (result.error?.message || '未知错误'));
+            }
+        } catch (e) {
+            alert('创建失败: ' + e.message);
+        }
+    }
+
+    // ========== Edit Modal ==========
+    function openEditModal(kbId) {
+        const kb = kbsData.find(k => k.kb_id === kbId);
+        if (!kb) return;
+
+        document.getElementById('edit-kb-id').value = kbId;
+        document.getElementById('edit-kb-name').value = kb.name || '';
+        document.getElementById('edit-kb-business').value = kb.business || '';
+        document.getElementById('edit-kb-description').value = kb.description || '';
+        document.getElementById('edit-modal').classList.add('visible');
+    }
+
+    function closeEditModal() {
+        document.getElementById('edit-modal').classList.remove('visible');
+    }
+
+    async function submitEditKB() {
+        const kbId = document.getElementById('edit-kb-id').value;
+        const name = document.getElementById('edit-kb-name').value.trim();
+        if (!name) {
+            alert('请输入知识库名称');
+            return;
+        }
+
+        const data = {
+            name: name,
+            business: document.getElementById('edit-kb-business').value.trim(),
+            description: document.getElementById('edit-kb-description').value.trim()
+        };
+
+        try {
+            const res = await fetch(API_BASE + '/kbs/' + kbId, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            const result = await res.json();
+            if (result.success) {
+                closeEditModal();
+                await loadKBs();
+            } else {
+                alert('保存失败: ' + (result.error?.message || '未知错误'));
+            }
+        } catch (e) {
+            alert('保存失败: ' + e.message);
+        }
+    }
+
+    // ========== Actions ==========
+    function openKB(kbId) {
+        window.location.href = '/labs/' + kbId;
+    }
+
+    function escapeHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    init();
+</script>
+</body>
+</html>
