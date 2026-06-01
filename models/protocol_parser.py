@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from .tool_executor import ToolExecutor, ToolResult
 from .utils.text_cleaner import TextCleaner, QualityChecker
 from .utils.chunker import SmartChunker
-from .vision_parser import VisionDocumentParser, VisionGateKeeper
 
 
 @dataclass
@@ -27,8 +26,6 @@ class ProtocolDocParser:
         self.text_cleaner = TextCleaner()
         self.chunker = SmartChunker(min_chunk_size=200, max_chunk_size=1200)
         self.quality_checker = QualityChecker()
-        self.vision_parser = VisionDocumentParser() if use_vision_fallback else None
-        self.vision_gatekeeper = VisionGateKeeper()
         self.use_vision_fallback = use_vision_fallback
         self._image_counter = 0
 
@@ -49,20 +46,7 @@ class ProtocolDocParser:
             blocks.extend(self._extract_blocks(cleaned_text, file_path, "text"))
         elif isinstance(result.data, list):
             page_data = [p for p in result.data if isinstance(p, dict)]
-
-            vision_pages = set()
-            if ext == '.pdf' and self.vision_parser and page_data:
-                page_images = [p for p in page_data if p.get('images')]
-                if page_images:
-                    vision_blocks = self._vision_parse_pdf(file_path, page_data)
-                    for vb in vision_blocks:
-                        if vb.type == 'vision_text' and vb.content and len(vb.content) > 50:
-                            page_match = re.search(r'Vision_Page_(\d+)', vb.name)
-                            if page_match:
-                                vision_pages.add(int(page_match.group(1)))
-                            blocks.append(vb)
-
-            pages_with_text = [p for p in page_data if p.get('text') and p.get('page') not in vision_pages]
+            pages_with_text = [p for p in page_data if p.get('text')]
             full_text = '\n'.join(p.get('text', '') for p in pages_with_text)
 
             if ext == '.pdf' and page_data:
@@ -91,43 +75,7 @@ class ProtocolDocParser:
         return processed_blocks
 
     def _needs_vision(self, content: str) -> bool:
-        result = self.quality_checker.check_quality(content)
-        return self.vision_gatekeeper.needs_vision_parsing(content, result.garbage_ratio)
-
-    def _vision_parse_pdf(self, pdf_path: str, page_data: List[Dict]) -> List[ProtocolBlock]:
-        blocks = []
-        try:
-            for page in page_data:
-                if not page.get('images'):
-                    continue
-                page_num = page.get('page', 0)
-                original_text = page.get('text', '')
-                if not original_text.strip():
-                    original_text = "页面包含图像，请识别图中的表格和文字内容"
-                result = self.vision_parser.correct_page(pdf_path, page_num, original_text)
-                if result and result.markdown:
-                    cleaned_text = self.text_cleaner.clean(result.markdown)
-                    if len(cleaned_text) > 20:
-                        scene = self._extract_scene(cleaned_text)
-                        blocks.append(ProtocolBlock(
-                            name=f"Vision_Page_{page_num}",
-                            type="vision_text",
-                            content=cleaned_text,
-                            scene=scene,
-                            source=pdf_path
-                        ))
-        except Exception as e:
-            print(f"Vision parse error: {e}")
-        return blocks
-
-    def _vision_correct_page(self, pdf_path: str, page_num: int, original_text: str) -> Optional[str]:
-        try:
-            result = self.vision_parser.correct_page(pdf_path, page_num, original_text)
-            if result.error is None and result.markdown:
-                return result.markdown
-        except Exception as e:
-            print(f"Vision correction error: {e}")
-        return None
+        return False
 
     def _fix_garbled_text_with_llm(self, text: str, context: str = "") -> str:
         try:

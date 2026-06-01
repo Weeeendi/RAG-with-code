@@ -12,7 +12,6 @@ from models.vector_store import KnowledgeBase
 from models.c_parser import CCodeParser
 from models.protocol_parser import ProtocolDocParser
 from models.log_parser import LogParser
-from models.rag_engine import FAQAgent
 from models.enhanced_rag_engine import ReActRAGEngine
 
 
@@ -267,95 +266,6 @@ def interactive_mode(agent):
             print(f"处理问题时出错: {e}\n")
 
 
-def manage_mode(agent: FAQAgent):
-    print("\n" + "=" * 50)
-    print("知识库管理 - Feedback审核模式")
-    print("=" * 50 + "\n")
-
-    while True:
-        try:
-            print("\n选项:")
-            print("  1. 查看未处理的反馈")
-            print("  2. 修正知识库条目")
-            print("  3. 删除错误条目")
-            print("  4. 查看相关知识")
-            print("  5. 返回/退出")
-            choice = input("\n请选择操作 (1-5): ").strip()
-
-            if choice == '5':
-                break
-
-            if choice == '1':
-                feedback_list = agent.get_unresolved_feedback()
-                if not feedback_list:
-                    print("\n暂无未处理的反馈")
-                    continue
-                print(f"\n共有 {len(feedback_list)} 条未处理反馈:\n")
-                for fb in feedback_list:
-                    print(f"[ID:{fb['id']}] 问题: {fb['question'][:50]}...")
-                    print(f"       原回答: {fb['answer'][:80]}...")
-                    print(f"       时间: {fb['created_at']}")
-                    print("-" * 40)
-
-            elif choice == '2':
-                fb_id = input("请输入要修正的feedback ID: ").strip()
-                try:
-                    fb_id = int(fb_id)
-                except:
-                    print("无效的ID")
-                    continue
-
-                related = agent.rag.kb.find_related_items(
-                    next((f['question'] for f in agent.get_unresolved_feedback() if f['id'] == fb_id), ''),
-                    limit=1
-                )
-                if related:
-                    print(f"\n当前知识库内容:\n{related[0].content[:200]}...")
-                    print(f"来源: {related[0].source_file}:{related[0].line_number}")
-
-                new_content = input("\n请输入修正后的内容: ").strip()
-                if not new_content:
-                    print("内容不能为空")
-                    continue
-
-                if agent.fix_knowledge_from_feedback(fb_id, new_content):
-                    print("知识库已更新")
-                else:
-                    print("修正失败")
-
-            elif choice == '3':
-                fb_id = input("请输入要删除的feedback ID: ").strip()
-                try:
-                    fb_id = int(fb_id)
-                except:
-                    print("无效的ID")
-                    continue
-
-                confirm = input("确认删除相关知识库条目? (y/n): ").strip().lower()
-                if confirm == 'y':
-                    if agent.delete_wrong_knowledge(fb_id):
-                        print("已删除")
-                    else:
-                        print("删除失败")
-
-            elif choice == '4':
-                keyword = input("请输入关键词搜索: ").strip()
-                if not keyword:
-                    continue
-                related = agent.rag.kb.find_related_items(keyword, limit=5)
-                if not related:
-                    print("未找到相关内容")
-                else:
-                    for i, item in enumerate(related):
-                        print(f"\n[{i+1}] {item.title}")
-                        print(f"    来源: {item.source_file}:{item.line_number}")
-                        print(f"    内容: {item.content[:150]}...")
-
-        except KeyboardInterrupt:
-            print("\n退出管理模式")
-            break
-        except Exception as e:
-            print(f"操作出错: {e}")
 
 
 def create_app():
@@ -389,6 +299,24 @@ def create_app():
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
+    # 注册实验室模块蓝图 (Data-to-Retrieval Loop)
+    from labs.data_retrieval_loop.api.assets import assets_bp
+    from labs.data_retrieval_loop.api.experiments import experiments_bp
+    from labs.data_retrieval_loop.api.recall_test import recall_bp
+    from labs.data_retrieval_loop.api.provenance import provenance_bp
+    app.register_blueprint(assets_bp, url_prefix='/api/labs/assets')
+    app.register_blueprint(experiments_bp, url_prefix='/api/labs/experiments')
+    app.register_blueprint(recall_bp, url_prefix='/api/labs/recall')
+    app.register_blueprint(provenance_bp, url_prefix='/api/labs/provenance')
+
+    # 实验室Web测试页面
+    @app.route('/labs')
+    def labs_web():
+        import os
+        template_path = os.path.join(os.path.dirname(__file__), 'labs', 'data_retrieval_loop', 'templates', 'labs_web.html')
+        with open(template_path, 'r', encoding='utf-8') as f:
+            return f.read(), 200, {'Content-Type': 'text/html; charset=utf-8'}
+
     return app
 
 
@@ -396,8 +324,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='物联网技术支持Agent')
-    parser.add_argument('--mode', choices=['interactive', 'api', 'manage'], default='interactive',
-                        help='运行模式: interactive=交互模式, api=REST API服务, manage=知识库管理')
+    parser.add_argument('--mode', choices=['interactive', 'api'], default='interactive',
+                        help='运行模式: interactive=交互模式, api=REST API服务')
     parser.add_argument('--port', type=int, default=8000, help='API服务端口')
     args = parser.parse_args()
 
@@ -405,12 +333,6 @@ if __name__ == "__main__":
         print(f"启动REST API服务，端口: {args.port}")
         app = create_app()
         app.run(host='0.0.0.0', port=args.port, debug=False)
-    elif args.mode == 'manage':
-        print("=" * 50)
-        print("物联网技术支持Agent - 知识库管理模式")
-        print("=" * 50)
-        agent = create_agent()
-        manage_mode(agent)
     else:
         print("=" * 50)
         print("物联网技术支持Agent - ReAct多轮迭代模式")

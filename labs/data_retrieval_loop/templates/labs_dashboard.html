@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data-to-Retrieval Loop 实验室</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #333; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #007bff; }
+        h2 { color: #555; margin: 20px 0 10px; font-size: 1.2em; }
+
+        .tabs { display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab { padding: 10px 20px; background: #e9ecef; border: none; border-radius: 5px 5px 0 0; cursor: pointer; }
+        .tab.active { background: #007bff; color: white; }
+        .tab:hover { background: #dde2e6; }
+        .tab.active:hover { background: #0056b3; }
+
+        .panel { background: white; padding: 20px; border-radius: 0 5px 5px 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+
+        .section { margin-bottom: 30px; padding: 15px; background: #f8f9fa; border-radius: 5px; }
+        .section h3 { margin-bottom: 15px; color: #333; }
+
+        .form-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+        input, select, textarea { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #007bff; }
+        textarea { width: 100%; min-height: 80px; resize: vertical; }
+
+        button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        button.danger { background: #dc3545; }
+        button.danger:hover { background: #c82333; }
+        button.success { background: #28a745; }
+        button.success:hover { background: #218838; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #f8f9fa; font-weight: 600; }
+        tr:hover { background: #f8f9fa; }
+
+        .tag { display: inline-block; padding: 2px 8px; background: #e9ecef; border-radius: 3px; font-size: 12px; margin: 2px; }
+        .tag.protocol { background: #d4edda; color: #155724; }
+        .tag.c_code { background: #cce5ff; color: #004085; }
+        .tag.log { background: #fff3cd; color: #856404; }
+
+        .status { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 12px; }
+        .status.uploaded { background: #cce5ff; color: #004085; }
+        .status.parsed { background: #d4edda; color: #155724; }
+        .status.indexed { background: #28a745; color: white; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.draft { background: #e2e3e5; color: #383d41; }
+        .status.active { background: #28a745; color: white; }
+
+        .result-box { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 15px; max-height: 400px; overflow-y: auto; }
+        .result-box pre { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }
+        .card { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card h4 { margin-bottom: 10px; color: #333; }
+        .card .meta { font-size: 12px; color: #666; }
+
+        .metric { text-align: center; padding: 15px; }
+        .metric .value { font-size: 2em; font-weight: bold; color: #007bff; }
+        .metric .label { color: #666; font-size: 14px; }
+
+        .json-viewer { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .json-viewer pre { margin: 0; font-family: 'Consolas', monospace; font-size: 13px; }
+
+        .loading { text-align: center; padding: 20px; color: #666; }
+        .error { color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px; margin: 10px 0; }
+        .success { color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px; margin: 10px 0; }
+
+        .pagination { display: flex; gap: 5px; margin-top: 10px; }
+        .pagination button { padding: 5px 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔬 Data-to-Retrieval Loop 实验室</h1>
+
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('assets')">📁 资产管理</button>
+            <button class="tab" onclick="showTab('experiments')">⚙️ 实验配置</button>
+            <button class="tab" onclick="showTab('recall')">📊 召回测试</button>
+            <button class="tab" onclick="showTab('provenance')">🔍 溯源可视化</button>
+            <button class="tab" onclick="showTab('debug')">🐛 调试工具</button>
+        </div>
+
+        <!-- 资产管理面板 -->
+        <div id="panel-assets" class="panel">
+            <div class="section">
+                <h3>上传文件</h3>
+                <div class="form-row">
+                    <input type="file" id="file-input" accept=".pdf,.docx,.xlsx,.txt,.c,.h,.log,.md">
+                    <input type="text" id="file-tags" placeholder="标签 (逗号分隔)" style="width: 200px;">
+                    <select id="file-security">
+                        <option value="internal">内部</option>
+                        <option value="public">公开</option>
+                        <option value="confidential">机密</option>
+                        <option value="secret">绝密</option>
+                    </select>
+                    <button onclick="uploadFile()">上传</button>
+                </div>
+                <div id="upload-result"></div>
+            </div>
+
+            <div class="section">
+                <h3>资产列表</h3>
+                <div class="form-row">
+                    <select id="filter-status" onchange="loadAssets()">
+                        <option value="">全部状态</option>
+                        <option value="uploaded">已上传</option>
+                        <option value="parsing">解析中</option>
+                        <option value="parsed">已解析</option>
+                        <option value="indexing">索引中</option>
+                        <option value="indexed">已索引</option>
+                        <option value="error">错误</option>
+                    </select>
+                    <select id="filter-category" onchange="loadAssets()">
+                        <option value="">全部分类</option>
+                        <option value="protocol">协议文档</option>
+                        <option value="c_code">C代码</option>
+                        <option value="log">日志</option>
+                    </select>
+                    <button onclick="loadAssets()">刷新</button>
+                </div>
+                <div id="assets-table"></div>
+            </div>
+        </div>
+
+        <!-- 实验配置面板 -->
+        <div id="panel-experiments" class="panel" style="display:none;">
+            <div class="section">
+                <h3>创建实验配置</h3>
+                <div class="form-row">
+                    <input type="text" id="exp-name" placeholder="配置名称" style="width: 150px;">
+                    <select id="exp-chunk-size">
+                        <option value="500">Chunk: 500</option>
+                        <option value="800" selected>Chunk: 800</option>
+                        <option value="1000">Chunk: 1000</option>
+                    </select>
+                    <select id="exp-overlap">
+                        <option value="0.10">Overlap: 10%</option>
+                        <option value="0.15" selected>Overlap: 15%</option>
+                    </select>
+                    <select id="exp-splitter">
+                        <option value="smart">Smart</option>
+                        <option value="recursive">Recursive</option>
+                        <option value="character">Character</option>
+                    </select>
+                    <label><input type="checkbox" id="exp-shadow"> 影子索引</label>
+                    <button onclick="createExperiment()">创建</button>
+                </div>
+                <div id="exp-result"></div>
+            </div>
+
+            <div class="section">
+                <h3>实验配置列表</h3>
+                <div id="experiments-table"></div>
+            </div>
+        </div>
+
+        <!-- 召回测试面板 -->
+        <div id="panel-recall" class="panel" style="display:none;">
+            <div class="section">
+                <h3>创建问题集</h3>
+                <div class="form-row">
+                    <input type="text" id="set-name" placeholder="问题集名称" style="width: 150px;">
+                    <input type="text" id="set-category" placeholder="分类" style="width: 100px;">
+                    <button onclick="createQuestionSet()">创建</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>问题集列表</h3>
+                <div id="sets-list"></div>
+            </div>
+
+            <div class="section">
+                <h3>执行评估</h3>
+                <div class="form-row">
+                    <select id="eval-config">
+                        <option value="">选择配置</option>
+                    </select>
+                    <select id="eval-set">
+                        <option value="">选择问题集</option>
+                    </select>
+                    <button onclick="runEvaluation()">执行评估</button>
+                </div>
+                <div id="eval-result"></div>
+            </div>
+        </div>
+
+        <!-- 溯源可视化面板 -->
+        <div id="panel-provenance" class="panel" style="display:none;">
+            <div class="section">
+                <h3>查询分块溯源</h3>
+                <div class="form-row">
+                    <input type="text" id="chunk-id" placeholder="分块ID" style="width: 250px;">
+                    <button onclick="getChunkProvenance()">查询</button>
+                </div>
+                <div id="provenance-result"></div>
+            </div>
+
+            <div class="section">
+                <h3>创建分块映射</h3>
+                <div class="form-row">
+                    <input type="text" id="map-asset-id" placeholder="资产ID" style="width: 200px;">
+                    <input type="text" id="map-chunk-id" placeholder="分块ID" style="width: 200px;">
+                    <input type="number" id="map-page" placeholder="页码" style="width: 80px;">
+                    <input type="number" id="map-line-start" placeholder="起始行" style="width: 80px;">
+                    <input type="number" id="map-line-end" placeholder="结束行" style="width: 80px;">
+                    <button onclick="createChunkMapping()">创建映射</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 调试工具面板 -->
+        <div id="panel-debug" class="panel" style="display:none;">
+            <div class="section">
+                <h3>API 调试</h3>
+                <div class="form-row">
+                    <select id="debug-method">
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                    </select>
+                    <input type="text" id="debug-url" placeholder="/api/labs/..." style="width: 300px;">
+                    <button onclick="sendDebugRequest()">发送</button>
+                </div>
+                <textarea id="debug-body" placeholder="请求体 (JSON)" style="width: 100%; height: 100px; margin-top: 10px;"></textarea>
+                <div id="debug-result" class="json-viewer"><pre></pre></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/labs';
+
+        function showTab(tab) {
+            document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById('panel-' + tab).style.display = 'block';
+            event.target.classList.add('active');
+
+            if (tab === 'assets') loadAssets();
+            else if (tab === 'experiments') loadExperiments();
+            else if (tab === 'recall') { loadQuestionSets(); loadConfigOptions(); }
+        }
+
+        // ========== Assets ==========
+        function uploadFile() {
+            const fileInput = document.getElementById('file-input');
+            const tags = document.getElementById('file-tags').value;
+            const security = document.getElementById('file-security').value;
+
+            if (!fileInput.files[0]) {
+                showResult('upload-result', '请选择文件', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('tags', tags);
+            formData.append('security_level', security);
+
+            fetch(API_BASE + '/assets/upload', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        showResult('upload-result', '上传成功: ' + data.data.asset_id, 'success');
+                        loadAssets();
+                    } else {
+                        showResult('upload-result', '失败: ' + JSON.stringify(data.error), 'error');
+                    }
+                })
+                .catch(e => showResult('upload-result', '错误: ' + e, 'error'));
+        }
+
+        function loadAssets() {
+            const status = document.getElementById('filter-status').value;
+            const category = document.getElementById('filter-category').value;
+            let url = API_BASE + '/assets?limit=100';
+            if (status) url += '&status=' + status;
+            if (category) url += '&category=' + category;
+
+            fetch(url).then(r => r.json()).then(data => {
+                const html = data.data.length ? `
+                    <table>
+                        <tr><th>文件名</th><th>大小</th><th>分类</th><th>状态</th><th>标签</th><th>操作</th></tr>
+                        ${data.data.map(a => `
+                            <tr>
+                                <td>${a.file_name}</td>
+                                <td>${(a.file_size/1024).toFixed(1)} KB</td>
+                                <td><span class="tag ${a.category}">${a.category}</span></td>
+                                <td><span class="status ${a.status}">${a.status}</span></td>
+                                <td>${(a.tags||[]).map(t => `<span class="tag">${t}</span>`).join('')}</td>
+                                <td>
+                                    <button class="danger" onclick="deleteAsset('${a.asset_id}')">删除</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                ` : '<p>暂无资产</p>';
+                document.getElementById('assets-table').innerHTML = html;
+            });
+        }
+
+        function deleteAsset(id) {
+            if (!confirm('确定删除?')) return;
+            fetch(API_BASE + '/assets/' + id, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(data => { alert(data.success ? '删除成功' : '失败'); loadAssets(); });
+        }
+
+        // ========== Experiments ==========
+        function createExperiment() {
+            const name = document.getElementById('exp-name').value;
+            const chunkSize = document.getElementById('exp-chunk-size').value;
+            const overlap = document.getElementById('exp-overlap').value;
+            const splitter = document.getElementById('exp-splitter').value;
+            const isShadow = document.getElementById('exp-shadow').checked;
+
+            if (!name) { showResult('exp-result', '请输入配置名称', 'error'); return; }
+
+            fetch(API_BASE + '/experiments', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ config_name: name, chunk_size: +chunkSize, overlap_ratio: +overlap, splitter_type: splitter, is_shadow: isShadow })
+            }).then(r => r.json()).then(data => {
+                if (data.success) {
+                    showResult('exp-result', '创建成功: ' + data.data.config_id, 'success');
+                    loadExperiments();
+                } else {
+                    showResult('exp-result', '失败: ' + JSON.stringify(data.error), 'error');
+                }
+            });
+        }
+
+        function loadExperiments() {
+            fetch(API_BASE + '/experiments').then(r => r.json()).then(data => {
+                const html = data.data.length ? `
+                    <table>
+                        <tr><th>名称</th><th>Chunk</th><th>Overlap</th><th>类型</th><th>状态</th><th>操作</th></tr>
+                        ${data.data.map(e => `
+                            <tr>
+                                <td>${e.config_name}</td>
+                                <td>${e.chunk_size}</td>
+                                <td>${(e.overlap_ratio*100).toFixed(0)}%</td>
+                                <td>${e.splitter_type}</td>
+                                <td><span class="status ${e.status}">${e.status}</span></td>
+                                <td>
+                                    ${e.status === 'draft' ? `<button class="success" onclick="activateConfig('${e.config_id}')">激活</button>` : ''}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                ` : '<p>暂无配置</p>';
+                document.getElementById('experiments-table').innerHTML = html;
+            });
+        }
+
+        function activateConfig(id) {
+            fetch(API_BASE + '/experiments/' + id + '/activate', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    alert(data.success ? '激活成功' : '失败');
+                    loadExperiments();
+                });
+        }
+
+        // ========== Recall ==========
+        function createQuestionSet() {
+            const name = document.getElementById('set-name').value;
+            const category = document.getElementById('set-category').value;
+            if (!name) { alert('请输入名称'); return; }
+
+            fetch(API_BASE + '/recall/sets', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ set_name: name, category })
+            }).then(r => r.json()).then(data => {
+                if (data.success) { alert('创建成功'); loadQuestionSets(); }
+            });
+        }
+
+        function loadQuestionSets() {
+            fetch(API_BASE + '/recall/sets').then(r => r.json()).then(data => {
+                const html = data.data.length ? data.data.map(s => `
+                    <div class="card">
+                        <h4>${s.set_name} <span class="tag">${s.category || ''}</span></h4>
+                        <p>问题数: ${s.question_count}</p>
+                        <button onclick="showAddQuestion('${s.set_id}')">添加问题</button>
+                    </div>
+                `).join('') : '<p>暂无问题集</p>';
+                document.getElementById('sets-list').innerHTML = '<div class="grid">' + html + '</div>';
+            });
+        }
+
+        function loadConfigOptions() {
+            fetch(API_BASE + '/experiments').then(r => r.json()).then(data => {
+                const opts = data.data.map(e => `<option value="${e.config_id}">${e.config_name}</option>`).join('');
+                document.getElementById('eval-config').innerHTML = '<option value="">选择配置</option>' + opts;
+            });
+            fetch(API_BASE + '/recall/sets').then(r => r.json()).then(data => {
+                const opts = data.data.map(s => `<option value="${s.set_id}">${s.set_name}</option>`).join('');
+                document.getElementById('eval-set').innerHTML = '<option value="">选择问题集</option>' + opts;
+            });
+        }
+
+        function runEvaluation() {
+            const configId = document.getElementById('eval-config').value;
+            const setId = document.getElementById('eval-set').value;
+            if (!configId || !setId) { alert('请选择配置和问题集'); return; }
+
+            fetch(API_BASE + '/recall/sets/' + setId + '/evaluate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ config_id: configId })
+            }).then(r => r.json()).then(data => {
+                if (data.success) {
+                    const m = data.data.metrics;
+                    document.getElementById('eval-result').innerHTML = m ? `
+                        <div class="grid">
+                            <div class="card metric"><div class="value">${(m.avg_hit_rate*100).toFixed(1)}%</div><div class="label">Hit Rate</div></div>
+                            <div class="card metric"><div class="value">${(m.avg_mrr*100).toFixed(1)}%</div><div class="label">MRR</div></div>
+                            <div class="card metric"><div class="value">${m.eval_count}</div><div class="label">评估数</div></div>
+                        </div>
+                    ` : '<p>无评估数据</p>';
+                } else {
+                    document.getElementById('eval-result').innerHTML = '<div class="error">失败: ' + JSON.stringify(data.error) + '</div>';
+                }
+            });
+        }
+
+        // ========== Provenance ==========
+        function getChunkProvenance() {
+            const chunkId = document.getElementById('chunk-id').value;
+            if (!chunkId) { alert('请输入分块ID'); return; }
+
+            fetch(API_BASE + '/provenance/chunk/' + encodeURIComponent(chunkId))
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('provenance-result').innerHTML = data.success ?
+                        `<div class="result-box"><pre>${JSON.stringify(data.data, null, 2)}</pre></div>` :
+                        `<div class="error">未找到: ${chunkId}</div>`;
+                });
+        }
+
+        function createChunkMapping() {
+            const assetId = document.getElementById('map-asset-id').value;
+            const chunkId = document.getElementById('map-chunk-id').value;
+            const page = document.getElementById('map-page').value;
+            const lineStart = document.getElementById('map-line-start').value;
+            const lineEnd = document.getElementById('map-line-end').value;
+
+            if (!assetId || !chunkId) { alert('请输入资产ID和分块ID'); return; }
+
+            fetch(API_BASE + '/provenance/asset/' + assetId + '/chunks', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    chunk_id: chunkId,
+                    page_number: page ? +page : null,
+                    line_start: lineStart ? +lineStart : null,
+                    line_end: lineEnd ? +lineEnd : null
+                })
+            }).then(r => r.json()).then(data => {
+                alert(data.success ? '创建成功' : '失败');
+            });
+        }
+
+        // ========== Debug ==========
+        function sendDebugRequest() {
+            const method = document.getElementById('debug-method').value;
+            const url = document.getElementById('debug-url').value;
+            const body = document.getElementById('debug-body').value;
+
+            const opts = { method, headers: {} };
+            if (body && method !== 'GET') {
+                opts.headers['Content-Type'] = 'application/json';
+                opts.body = body;
+            }
+
+            fetch(url.startsWith('/') ? url : '/' + url, opts)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('debug-result').innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                })
+                .catch(e => document.getElementById('debug-result').innerHTML = '<pre>Error: ' + e + '</pre>');
+        }
+
+        // ========== Utils ==========
+        function showResult(id, msg, type) {
+            document.getElementById(id).innerHTML = `<div class="${type}">${msg}</div>`;
+        }
+
+        // Load initial data
+        loadAssets();
+    </script>
+</body>
+</html>

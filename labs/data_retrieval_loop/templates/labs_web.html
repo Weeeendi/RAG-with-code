@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库管理平台</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #333; }
+        .layout { display: flex; min-height: 100vh; }
+
+        /* Sidebar */
+        .sidebar { width: 220px; background: #001529; color: #fff; position: fixed; height: 100vh; overflow-y: auto; }
+        .sidebar-logo { padding: 20px; font-size: 16px; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .sidebar-logo span { color: #3b82f6; }
+        .sidebar-nav { padding: 10px 0; }
+        .nav-section { padding: 20px 0 5px; font-size: 11px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 1px; padding-left: 20px; }
+        .nav-item { padding: 10px 20px; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 10px; transition: all 0.2s; }
+        .nav-item:hover { background: rgba(255,255,255,0.08); }
+        .nav-item.active { background: #1890ff; }
+        .nav-item .icon { font-size: 16px; }
+
+        /* Main content */
+        .main { margin-left: 220px; flex: 1; padding: 24px 32px; }
+        .page-header { margin-bottom: 24px; }
+        .page-title { font-size: 22px; font-weight: 600; color: #1a1a1a; }
+        .page-desc { color: #888; font-size: 13px; margin-top: 4px; }
+
+        /* Cards */
+        .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; }
+        .card-header { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; justify-content: space-between; }
+        .card-title { font-size: 15px; font-weight: 500; }
+        .card-body { padding: 20px; }
+
+        /* KB Cards */
+        .kb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+        .kb-card { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); cursor: pointer; transition: all 0.2s; border: 2px solid transparent; }
+        .kb-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.12); transform: translateY(-2px); }
+        .kb-card.selected { border-color: #3b82f6; background: #f0f5ff; }
+        .kb-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .kb-icon { width: 40px; height: 40px; background: #e6f0ff; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+        .kb-name { font-size: 15px; font-weight: 600; }
+        .kb-meta { font-size: 12px; color: #888; margin-top: 8px; display: flex; gap: 16px; flex-wrap: wrap; }
+        .kb-meta span { display: flex; align-items: center; gap: 4px; }
+        .kb-tag { display: inline-block; padding: 2px 8px; background: #f0f0f0; border-radius: 4px; font-size: 11px; color: #666; margin-top: 4px; }
+        .kb-tag.active { background: #e6f7e6; color: #52c41a; }
+
+        /* KB Detail Panel */
+        .kb-detail-panel { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+        .kb-uuid { font-family: monospace; font-size: 11px; color: #aaa; background: #f5f5f5; padding: 4px 8px; border-radius: 4px; word-break: break-all; }
+
+        /* Stats row */
+        .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: #fff; border-radius: 8px; padding: 16px; text-align: center; }
+        .stat-value { font-size: 28px; font-weight: 700; color: #1a1a1a; }
+        .stat-label { font-size: 12px; color: #888; margin-top: 4px; }
+        .stat-card.blue .stat-value { color: #3b82f6; }
+        .stat-card.green .stat-value { color: #52c41a; }
+        .stat-card.orange .stat-value { color: #fa8c16; }
+
+        /* Form elements */
+        .form-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+        .form-label { font-size: 13px; color: #555; min-width: 80px; }
+        input, select, textarea { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s; }
+        input:focus, select:focus, textarea:focus { border-color: #3b82f6; }
+        textarea { resize: vertical; min-height: 60px; width: 100%; }
+        select { min-width: 120px; background: #fff; }
+
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .btn-primary { background: #3b82f6; color: #fff; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-success { background: #52c41a; color: #fff; }
+        .btn-success:hover { background: #389e0d; }
+        .btn-danger { background: #ff4d4f; color: #fff; }
+        .btn-danger:hover { background: #d93636; }
+        .btn-secondary { background: #f5f5f5; color: #333; border: 1px solid #ddd; }
+        .btn-secondary:hover { background: #e8e8e8; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+        /* Chunk preview */
+        .chunk-preview { border: 1px solid #e8e8e8; border-radius: 6px; padding: 10px; margin-bottom: 8px; font-size: 12px; background: #fafafa; }
+        .chunk-preview .chunk-id { font-weight: 600; color: #3b82f6; margin-bottom: 4px; }
+        .chunk-preview .chunk-text { color: #555; line-height: 1.5; max-height: 80px; overflow: hidden; }
+        .chunk-preview .chunk-meta { font-size: 11px; color: #aaa; margin-top: 4px; }
+
+        /* Sliders */
+        .slider-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .slider-label { font-size: 13px; color: #555; min-width: 120px; }
+        input[type="range"] { flex: 1; accent-color: #3b82f6; }
+        .slider-value { font-weight: 600; color: #3b82f6; min-width: 40px; text-align: right; }
+
+        /* Message */
+        .message { padding: 10px 16px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; }
+        .message-success { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }
+        .message-error { background: #fff2f0; color: #ff4d4f; border: 1px solid #ffccc7; }
+        .message-info { background: #f0f5ff; color: #3b82f6; border: 1px solid #adc6ff; }
+
+        /* Section nav */
+        .section-nav { display: flex; gap: 8px; margin-bottom: 20px; }
+        .section-btn { padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .section-btn.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+
+        /* Page sections */
+        .page-section { display: none; }
+        .page-section.active { display: block; }
+
+        /* 3 column layout for retrieval tuning */
+        .retrieval-layout { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+        @media (max-width: 1200px) { .retrieval-layout { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 768px) { .retrieval-layout { grid-template-columns: 1fr; } }
+
+        /* Version list */
+        .version-item { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #e8e8e8; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; }
+        .version-item:hover { border-color: #3b82f6; background: #f8f9ff; }
+        .version-item.selected { border-color: #3b82f6; background: #f0f5ff; }
+        .version-item .vnum { font-weight: 700; color: #3b82f6; min-width: 60px; }
+        .version-item .vinfo { flex: 1; }
+        .version-item .vinfo .vname { font-size: 13px; font-weight: 500; }
+        .version-item .vinfo .vdate { font-size: 11px; color: #aaa; }
+        .vtag { padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+        .vtag-active { background: #e6f7e6; color: #52c41a; }
+        .vtag-draft { background: #f5f5f5; color: #888; }
+        .vtag-archived { background: #fff7e6; color: #fa8c16; }
+
+        /* System prompt editor */
+        .prompt-editor { width: 100%; min-height: 200px; font-family: 'Monaco', 'Consolas', monospace; font-size: 12px; line-height: 1.6; padding: 12px; background: #1e1e1e; color: #d4d4d4; border-radius: 6px; resize: vertical; }
+
+        .hidden { display: none !important; }
+        .divider { border-top: 1px solid #eee; margin: 12px 0; }
+    </style>
+</head>
+<body>
+<div class="layout">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-logo">Vehiclink <span>RAG</span></div>
+        <div class="sidebar-nav">
+            <div class="nav-section">Phase 1</div>
+            <div class="nav-item active" onclick="showPage('kb-portal')">
+                <span class="icon">📚</span> 知识库门户
+            </div>
+            <div class="nav-section">Phase 2</div>
+            <div class="nav-item" onclick="showPage('etl-chunking')">
+                <span class="icon">🔧</span> 数据预处理
+            </div>
+            <div class="nav-item" onclick="showPage('retrieval-tuning')">
+                <span class="icon">🎯</span> 检索调优
+            </div>
+            <div class="nav-section">Phase 3</div>
+            <div class="nav-item" onclick="showPage('prompt-ops')">
+                <span class="icon">💬</span> 推理测试
+            </div>
+            <div class="nav-section">Phase 4</div>
+            <div class="nav-item" onclick="showPage('version-control')">
+                <span class="icon">📦</span> 版本管理
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main">
+
+        <!-- ========== Phase 1: KB Portal ========== -->
+        <div id="page-kb-portal" class="page-section active">
+            <div class="page-header">
+                <div class="page-title">知识库门户</div>
+                <div class="page-desc">点击知识库进入管理页面（UUID不可变，名称/描述可编辑）</div>
+            </div>
+
+            <div class="stats-row">
+                <div class="stat-card blue">
+                    <div class="stat-value" id="stat-kb-count">-</div>
+                    <div class="stat-label">资产总数</div>
+                </div>
+                <div class="stat-card green">
+                    <div class="stat-value" id="stat-file-count">-</div>
+                    <div class="stat-label">文件总数</div>
+                </div>
+                <div class="stat-card orange">
+                    <div class="stat-value" id="stat-chunk-count">-</div>
+                    <div class="stat-label">分块总数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-active-version">-</div>
+                    <div class="stat-label">生效版本</div>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start;">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">资产列表</span>
+                        <button class="btn btn-secondary btn-sm" onclick="loadKBs()">刷新</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="kb-grid" id="kb-grid">
+                            <div style="text-align:center;color:#aaa;padding:40px;">暂无资产，上传文件后可管理</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- KB Detail Panel -->
+                <div id="kb-detail-panel" class="kb-detail-panel hidden">
+                    <div class="card-title" style="margin-bottom:16px;">📝 资产详情</div>
+                    <div id="kb-detail-content"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== Phase 2-1: ETL & Chunking ========== -->
+        <div id="page-etl-chunking" class="page-section">
+            <div class="page-header">
+                <div class="page-title">数据预处理</div>
+                <div class="page-desc">上传 → 预览文本 → 执行解析 → 确认入库</div>
+            </div>
+
+            <div class="section-nav">
+                <button class="section-btn active" onclick="showEtlStep('upload')">上传文件</button>
+                <button class="section-btn" onclick="showEtlStep('preview')">预览文本</button>
+                <button class="section-btn" onclick="showEtlStep('chunk')">分块效果</button>
+            </div>
+
+            <!-- Step 1: Upload -->
+            <div id="etl-upload" class="etl-step">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">上传文件</span>
+                        <select id="etl-kb-select" style="width:200px;">
+                            <option value="">选择目标知识库</option>
+                        </select>
+                    </div>
+                    <div class="card-body">
+                        <div style="border:2px dashed #ddd;border-radius:8px;padding:40px;text-align:center;cursor:pointer;" id="etl-upload-area" onclick="document.getElementById('etl-file-input').click()">
+                            <div style="font-size:32px;margin-bottom:10px;">📄</div>
+                            <div>点击或拖拽文件到此处</div>
+                            <div style="color:#aaa;font-size:12px;margin-top:5px;">PDF, DOCX, TXT, C, H, LOG</div>
+                        </div>
+                        <input type="file" id="etl-file-input" style="display:none" multiple>
+                        <div id="etl-file-list" style="margin-top:12px;"></div>
+                        <div style="margin-top:16px;">
+                            <div class="form-label" style="margin-bottom:8px;">分块策略</div>
+                            <div style="display:flex;gap:12px;">
+                                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                                    <input type="radio" name="chunk-strategy" value="smart" checked> 智能分块 (语义)
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                                    <input type="radio" name="chunk-strategy" value="fixed"> 固定长度
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                                    <input type="radio" name="chunk-strategy" value="recursive"> 递归分块
+                                </label>
+                            </div>
+                        </div>
+                        <div style="margin-top:16px;display:flex;gap:12px;align-items:center;">
+                            <button class="btn btn-primary" onclick="executeParse()">执行解析</button>
+                            <button class="btn btn-success" onclick="previewText()">预览文本</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Preview -->
+            <div id="etl-preview" class="etl-step hidden">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">文本预览</span>
+                        <button class="btn btn-secondary btn-sm" onclick="showEtlStep('upload')">返回上传</button>
+                    </div>
+                    <div class="card-body">
+                        <div id="parse-warning" style="display:none;margin-bottom:12px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;font-size:13px;color:#856404;">
+                            <span id="parse-warning-text"></span>
+                            <button onclick="reparseWithOCR()" style="margin-left:12px;padding:4px 12px;background:#ffc107;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">切换OCR模式</button>
+                        </div>
+                        <div id="parse-stats" style="display:flex;gap:16px;margin-bottom:12px;padding:8px 12px;background:#f5f5f5;border-radius:6px;font-size:13px;">
+                            <span>乱码率: <b id="stat-garble">-</b>%</span>
+                            <span>页数: <b id="stat-pages">-</b></span>
+                            <span>表格: <b id="stat-tables">-</b></span>
+                            <span>图片: <b id="stat-images">-</b></span>
+                            <span>字符数: <b id="stat-chars">-</b></span>
+                            <span id="stat-ocr-used" style="display:none;color:#28a745;font-weight:bold;">OCR模式</span>
+                        </div>
+                        <div id="parse-progress" style="display:none;margin-bottom:12px;">
+                            <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+                                <span id="parse-status-text" style="font-size:13px;color:#666;">准备中...</span>
+                                <span id="parse-percent" style="font-size:13px;color:#007bff;font-weight:bold;">0%</span>
+                            </div>
+                            <div style="width:100%;height:8px;background:#e9ecef;border-radius:4px;overflow:hidden;">
+                                <div id="parse-progress-bar" style="width:0%;height:100%;background:linear-gradient(90deg, #007bff, #28a745);transition:width 0.3s ease;border-radius:4px;"></div>
+                            </div>
+                        </div>
+                        <pre id="preview-text" style="background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:6px;max-height:400px;overflow:auto;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;font-family:Monaco,'Consolas',monospace;"></pre>
+                        <div id="image-descriptions" style="display:none;margin-top:12px;padding:10px;background:#e8f5e9;border-radius:6px;font-size:13px;">
+                            <div style="font-weight:bold;margin-bottom:8px;">图片描述:</div>
+                            <div id="image-desc-list"></div>
+                        </div>
+                        <div style="margin-top:16px;display:flex;gap:12px;">
+                            <button class="btn btn-primary" onclick="executeChunk()">执行分块</button>
+                            <button class="btn btn-secondary" onclick="showEtlStep('chunk')">查看分块</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Chunk result -->
+            <div id="etl-chunk" class="etl-step hidden">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">分块效果预览（前5个）</span>
+                        <button class="btn btn-secondary btn-sm" onclick="showEtlStep('upload')">重新上传</button>
+                    </div>
+                    <div class="card-body">
+                        <div id="chunk-list"></div>
+                        <div style="margin-top:16px;display:flex;gap:12px;">
+                            <button class="btn btn-success" onclick="confirmChunking()">确认入库</button>
+                            <span id="chunk-status" style="color:#888;font-size:13px;line-height:32px;"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== Phase 2-2: Retrieval Tuning ========== -->
+        <div id="page-retrieval-tuning" class="page-section">
+            <div class="page-header">
+                <div class="page-title">检索调优</div>
+                <div class="page-desc">纯检索测试，不走 LLM，直接查看 Top-K 返回的 Chunks</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">检索参数</span>
+                    <button class="btn btn-secondary btn-sm" onclick="loadRetrievalParams()">重置</button>
+                </div>
+                <div class="card-body">
+                    <div class="slider-row">
+                        <span class="slider-label">Top-K</span>
+                        <input type="range" id="topk-slider" min="1" max="50" value="10" oninput="document.getElementById('topk-value').textContent=this.value">
+                        <span class="slider-value" id="topk-value">10</span>
+                    </div>
+                    <div class="slider-row">
+                        <span class="slider-label">Score Threshold</span>
+                        <input type="range" id="threshold-slider" min="0" max="100" value="0" oninput="document.getElementById('threshold-value').textContent=(this.value/100).toFixed(2)">
+                        <span class="slider-value" id="threshold-value">0.00</span>
+                    </div>
+                    <div class="slider-row">
+                        <span class="slider-label">Rerank</span>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                            <input type="checkbox" id="rerank-toggle"> 启用重排序
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="retrieval-layout">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Query 输入</span>
+                    </div>
+                    <div class="card-body">
+                        <textarea id="query-input" placeholder="输入检索词，如：骑行记录如何上报" style="min-height:100px;"></textarea>
+                        <div style="margin-top:12px;">
+                            <button class="btn btn-primary" onclick="runRetrieval()" style="width:100%;">🔍 检索</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Raw Chunks（原始）</span>
+                    </div>
+                    <div class="card-body" id="raw-chunks" style="max-height:500px;overflow:auto;">
+                        <div style="color:#aaa;text-align:center;padding:40px;">输入Query后点击检索</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Rerank 后结果</span>
+                    </div>
+                    <div class="card-body" id="reranked-chunks" style="max-height:500px;overflow:auto;">
+                        <div style="color:#aaa;text-align:center;padding:40px;">启用Rerank后显示</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== Phase 3: Prompt Ops ========== -->
+        <div id="page-prompt-ops" class="page-section">
+            <div class="page-header">
+                <div class="page-title">推理测试</div>
+                <div class="page-desc">输入问题，调用完整 RAG 生成回答，保存为配置版本</div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div>
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">Prompt 模板配置</span>
+                        </div>
+                        <div class="card-body">
+                            <div style="margin-bottom:12px;">
+                                <label class="form-label">System Prompt</label>
+                                <textarea id="system-prompt-editor" class="prompt-editor">你是一个专业的物联网技术支持助手，服务于云迹物联（Vehiclink）技术团队。
+
+【关键指令】
+1. 严格忠于知识库，所有回答必须基于提供的知识库文档
+2. 优先引用权威定义，必须注明出处（文档标题及章节/表格编号）
+3. 聚焦功能与协议，而非代码
+4. 禁止暴露源码变量名、函数名、枚举名
+5. 使用业务语言替代源码名称
+6. 简洁明确，直接给出答案
+
+【输出格式】
+[触发机制]
+<业务触发条件>
+
+[数据结构]
+<数据格式定义>
+
+[技术推论]
+<基于代码的推断></textarea>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+                                <div>
+                                    <label class="form-label">模型</label>
+                                    <select id="model-select" style="width:100%;">
+                                        <option value="MiniMax-M2.7">MiniMax-M2.7</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="form-label">Temperature</label>
+                                    <input type="number" id="temp-input" value="0.3" min="0" max="1" step="0.1" style="width:100%;">
+                                </div>
+                                <div>
+                                    <label class="form-label">Max Tokens</label>
+                                    <input type="number" id="maxtokens-input" value="1200" min="100" max="4000" step="100" style="width:100%;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">测试问题</span>
+                        </div>
+                        <div class="card-body">
+                            <textarea id="ops-question" placeholder="输入物联网技术问题，如：骑行记录的数据点有哪些？" style="min-height:100px;"></textarea>
+                            <div style="margin-top:12px;display:flex;gap:12px;">
+                                <button class="btn btn-primary" onclick="runRAG()">运行 RAG</button>
+                                <button class="btn btn-success" onclick="saveAsVersion()">保存为版本</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">回答结果</span>
+                        </div>
+                        <div class="card-body" id="rag-answer" style="min-height:300px;max-height:600px;overflow:auto;">
+                            <div style="color:#aaa;text-align:center;padding:60px;">运行RAG后显示结果</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== Phase 4: Version Control ========== -->
+        <div id="page-version-control" class="page-section">
+            <div class="page-header">
+                <div class="page-title">规则版本管理</div>
+                <div class="page-desc">
+                    版本 = 分块参数 + 检索参数 + Prompt 模板 的快照。
+                    <span class="vtag vtag-active">active</span>=当前生效 &nbsp;
+                    <span class="vtag vtag-draft">draft</span>=草稿 &nbsp;
+                    <span class="vtag vtag-archived">archived</span>=归档
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div>
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">版本列表</span>
+                            <button class="btn btn-secondary btn-sm" onclick="loadVersions()">刷新</button>
+                        </div>
+                        <div class="card-body" id="version-list">
+                            <div style="color:#aaa;text-align:center;padding:20px;">暂无版本</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">版本详情</span>
+                        </div>
+                        <div class="card-body" id="current-snapshot">
+                            <div style="color:#aaa;text-align:center;padding:20px;">点击左侧版本查看详情</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">保存新版本</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <input type="text" id="version-name" placeholder="版本名称，如：Ble协议优化版" style="flex:1;">
+                            </div>
+                            <div style="margin-bottom:12px;">
+                                <label class="form-label">版本说明</label>
+                                <textarea id="version-desc" placeholder="版本说明（可选）" style="min-height:60px;"></textarea>
+                            </div>
+                            <div style="display:flex;gap:12px;">
+                                <button class="btn btn-primary" onclick="saveNewVersion()">Save as Version</button>
+                                <button class="btn btn-success" onclick="publishVersion()">Publish</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="message-container" style="margin-top:16px;"></div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = '/api/labs';
+    let currentKBId = null;
+    let currentParsedText = '';
+    let currentChunks = [];
+    let currentVersionId = null;
+
+    // ========== Navigation ==========
+
+    function showPage(pageName) {
+        document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.getElementById('page-' + pageName).classList.add('active');
+        event.target?.closest('.nav-item')?.classList.add('active');
+
+        if (pageName === 'kb-portal') loadKBs();
+        if (pageName === 'etl-chunking') { loadKBSelector(); }
+        if (pageName === 'retrieval-tuning') { loadKBSelector(); loadRetrievalParams(); }
+        if (pageName === 'prompt-ops') {}
+        if (pageName === 'version-control') loadVersions();
+    }
+
+    function showEtlStep(step) {
+        document.querySelectorAll('.etl-step').forEach(s => s.classList.add('hidden'));
+        document.querySelectorAll('.section-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('etl-' + step).classList.remove('hidden');
+        event.target?.classList.add('active');
+    }
+
+    // ========== Utilities ==========
+
+    function showMessage(text, type = 'info') {
+        const c = document.getElementById('message-container');
+        c.innerHTML = `<div class="message message-${type}">${text}</div>`;
+        setTimeout(() => c.innerHTML = '', 5000);
+    }
+
+    async function apiCall(endpoint, method = 'GET', body = null) {
+        const opt = { method, headers: { 'Content-Type': 'application/json' } };
+        if (body) opt.body = JSON.stringify(body);
+        const res = await fetch(API_BASE + endpoint, opt);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`);
+        return data;
+    }
+
+    function formatDate(str) {
+        return str ? str.substring(0, 16).replace('T', ' ') : '-';
+    }
+
+    function esc(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ========== Phase 1: KB Portal ==========
+
+    async function loadKBs() {
+        try {
+            const data = await apiCall('/assets');
+            const assets = data.data || [];
+            const grid = document.getElementById('kb-grid');
+
+            document.getElementById('stat-kb-count').textContent = assets.length;
+            document.getElementById('stat-file-count').textContent = assets.filter(a => a.status === 'indexed').length;
+            document.getElementById('stat-chunk-count').textContent = '-';
+            document.getElementById('stat-active-version').textContent = 'v1.0';
+
+            if (!assets.length) {
+                grid.innerHTML = '<div style="text-align:center;color:#aaa;padding:40px;">暂无资产</div>';
+                return;
+            }
+
+            grid.innerHTML = assets.map(a => `
+                <div class="kb-card ${currentKBId === a.asset_id ? 'selected' : ''}" onclick="selectKB('${a.asset_id}', '${esc(a.file_name)}', '${esc(a.category||'')}', '${esc(a.status||'')}', '${esc(a.created_at||'')}')">
+                    <div class="kb-card-header">
+                        <div class="kb-icon">📄</div>
+                        <div class="kb-name">${esc(a.file_name)}</div>
+                    </div>
+                    <div class="kb-meta">
+                        <span>📦 ${esc(a.category) || '未分类'}</span>
+                        <span>🕐 ${formatDate(a.created_at)}</span>
+                    </div>
+                    <div>
+                        <span class="kb-tag ${a.status === 'indexed' ? 'active' : ''}">${esc(a.status)}</span>
+                        ${(a.tags||[]).slice(0,2).map(t => `<span class="kb-tag">${esc(t)}</span>`).join('')}
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) { showMessage('加载失败: ' + e.message, 'error'); }
+    }
+
+    function selectKB(id, name, category, status, created) {
+        currentKBId = id;
+        loadKBs();
+
+        // 显示详情面板
+        const panel = document.getElementById('kb-detail-panel');
+        const content = document.getElementById('kb-detail-content');
+        panel.classList.remove('hidden');
+        content.innerHTML = `
+            <div style="margin-bottom:12px;">
+                <div class="form-label">资产ID</div>
+                <div class="kb-uuid">${esc(id)}</div>
+            </div>
+            <div class="divider"></div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <div class="form-label">名称</div>
+                <input type="text" id="edit-kb-name" value="${esc(name)}" style="width:100%;">
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <div class="form-label">分类</div>
+                <input type="text" id="edit-kb-category" value="${esc(category)}" style="width:100%;">
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <div class="form-label">状态</div>
+                <span class="kb-tag ${status === 'indexed' ? 'active' : ''}">${esc(status)}</span>
+            </div>
+            <div style="margin-top:16px;display:flex;gap:8px;">
+                <button class="btn btn-primary btn-sm" onclick="updateKB()">保存修改</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteKB()">删除资产</button>
+            </div>
+        `;
+    }
+
+    async function updateKB() {
+        if (!currentKBId) return;
+        const name = document.getElementById('edit-kb-name')?.value;
+        const category = document.getElementById('edit-kb-category')?.value;
+        try {
+            await apiCall(`/assets/${currentKBId}`, 'PATCH', {
+                file_name: name,
+                category: category
+            });
+            showMessage('保存成功', 'success');
+            loadKBs();
+        } catch (e) { showMessage('保存失败: ' + e.message, 'error'); }
+    }
+
+    async function deleteKB() {
+        if (!currentKBId) return;
+        if (!confirm('确认删除此资产？')) return;
+        try {
+            await apiCall(`/assets/${currentKBId}`, 'DELETE');
+            currentKBId = null;
+            document.getElementById('kb-detail-panel').classList.add('hidden');
+            showMessage('删除成功', 'success');
+            loadKBs();
+        } catch (e) { showMessage('删除失败: ' + e.message, 'error'); }
+    }
+
+    // ========== Phase 2-1: ETL & Chunking ==========
+
+    function loadKBSelector() {
+        const selects = [
+            document.getElementById('etl-kb-select'),
+            document.getElementById('retrieval-kb-select')
+        ];
+        apiCall('/assets').then(data => {
+            const opts = (data.data || []).map(a =>
+                `<option value="${a.asset_id}">${esc(a.file_name)}</option>`
+            ).join('');
+            selects.forEach(s => {
+                s.innerHTML = '<option value="">选择知识库</option>' + opts;
+                if (currentKBId) s.value = currentKBId;
+            });
+        }).catch(() => {});
+    }
+
+    let etlSelectedFiles = [];
+    document.getElementById('etl-file-input').addEventListener('change', (e) => {
+        etlSelectedFiles = Array.from(e.target.files);
+        const list = document.getElementById('etl-file-list');
+        if (etlSelectedFiles.length) {
+            list.innerHTML = etlSelectedFiles.map(f =>
+                `<span style="display:inline-block;margin:4px;padding:4px 10px;background:#e6f0ff;border-radius:4px;font-size:12px;">${esc(f.name)}</span>`
+            ).join('');
+        }
+    });
+
+    async function previewText() {
+        if (!etlSelectedFiles.length) { showMessage('请先选择文件', 'error'); return; }
+        const file = etlSelectedFiles[0];
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // 显示进度条
+        const progressEl = document.getElementById('parse-progress');
+        const progressBar = document.getElementById('parse-progress-bar');
+        const statusText = document.getElementById('parse-status-text');
+        const percentText = document.getElementById('parse-percent');
+        progressEl.style.display = 'block';
+        progressBar.style.width = '0%';
+        percentText.textContent = '0%';
+
+        const statusMessages = ['正在连接...', '正在解析文件...', '正在提取文本...', '正在识别表格...', '正在处理图片...', '正在生成描述...', '正在完成...'];
+        let msgIdx = 0;
+        const statusTimer = setInterval(() => {
+            statusText.textContent = statusMessages[Math.min(msgIdx, statusMessages.length - 1)];
+            if (msgIdx < 3) msgIdx++;
+        }, 1500);
+
+        // 模拟进度动画
+        let fakeProgress = 0;
+        const progressTimer = setInterval(() => {
+            fakeProgress = Math.min(fakeProgress + Math.random() * 15, 85);
+            progressBar.style.width = fakeProgress + '%';
+            percentText.textContent = Math.round(fakeProgress) + '%';
+        }, 500);
+
+        try {
+            document.getElementById('preview-text').textContent = '正在解析文件，请稍候...\n\n';
+            showEtlStep('preview');
+
+            const res = await fetch(API_BASE + '/assets/parse', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            clearInterval(statusTimer);
+            clearInterval(progressTimer);
+            progressBar.style.width = '100%';
+            percentText.textContent = '100%';
+            statusText.textContent = '解析完成';
+
+            if (data.success) {
+                currentParsedText = data.data.text;
+                document.getElementById('preview-text').textContent =
+                    currentParsedText + (currentParsedText.length >= 8000 ? '\n\n... (已截断)' : '');
+                // 更新统计信息
+                const stats = data.data.stats || {};
+                document.getElementById('stat-garble').textContent = stats.garble_rate || 0;
+                document.getElementById('stat-pages').textContent = stats.total_pages || 0;
+                document.getElementById('stat-tables').textContent = stats.total_tables || 0;
+                document.getElementById('stat-images').textContent = stats.total_images || 0;
+                document.getElementById('stat-chars').textContent = stats.text_length || 0;
+                // OCR模式指示
+                document.getElementById('stat-ocr-used').style.display = stats.ocr_used ? 'inline' : 'none';
+                // 警告提示
+                const warningEl = document.getElementById('parse-warning');
+                if (data.data.warning) {
+                    warningEl.style.display = 'block';
+                    document.getElementById('parse-warning-text').textContent = data.data.warning;
+                } else {
+                    warningEl.style.display = 'none';
+                }
+                // 图片描述
+                const imgDescEl = document.getElementById('image-descriptions');
+                const imgDescs = stats.image_descriptions || [];
+                if (imgDescs.length > 0) {
+                    imgDescEl.style.display = 'block';
+                    document.getElementById('image-desc-list').innerHTML = imgDescs.map(img =>
+                        `<div style="margin-bottom:6px;padding:6px;background:#fff;border-radius:4px;">
+                            <b>${img.description}</b>
+                            ${img.tags && img.tags.length ? `<span style="color:#666;margin-left:8px;">标签: ${img.tags.join(', ')}</span>` : ''}
+                        </div>`
+                    ).join('');
+                } else {
+                    imgDescEl.style.display = 'none';
+                }
+            } else {
+                document.getElementById('preview-text').textContent =
+                    '解析失败: ' + (data.error?.message || '未知错误');
+                showMessage('解析失败: ' + (data.error?.message || ''), 'error');
+            }
+        } catch (e) {
+            document.getElementById('preview-text').textContent = '请求失败: ' + e.message;
+            showMessage('请求失败: ' + e.message, 'error');
+        }
+    }
+
+    async function executeParse() {
+        await previewText();
+    }
+
+    async function reparseWithOCR() {
+        if (!etlSelectedFiles.length) { showMessage('请先选择文件', 'error'); return; }
+        const file = etlSelectedFiles[0];
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // 显示进度条
+        const progressEl = document.getElementById('parse-progress');
+        const progressBar = document.getElementById('parse-progress-bar');
+        const statusText = document.getElementById('parse-status-text');
+        const percentText = document.getElementById('parse-percent');
+        progressEl.style.display = 'block';
+        progressBar.style.width = '0%';
+        percentText.textContent = '0%';
+
+        const statusMessages = ['正在连接...', '正在启动 OCR 引擎...', '正在识别文字...', '正在提取表格...', '正在处理图片...', '正在生成描述...', '正在完成...'];
+        let msgIdx = 0;
+        const statusTimer = setInterval(() => {
+            statusText.textContent = statusMessages[Math.min(msgIdx, statusMessages.length - 1)];
+            if (msgIdx < 3) msgIdx++;
+        }, 1500);
+
+        let fakeProgress = 0;
+        const progressTimer = setInterval(() => {
+            fakeProgress = Math.min(fakeProgress + Math.random() * 12, 90);
+            progressBar.style.width = fakeProgress + '%';
+            percentText.textContent = Math.round(fakeProgress) + '%';
+        }, 500);
+
+        try {
+            document.getElementById('preview-text').textContent = '正在使用 OCR 模式解析，请稍候...\n\n';
+            showEtlStep('preview');
+
+            const res = await fetch(API_BASE + '/assets/parse?force_ocr=true', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            clearInterval(statusTimer);
+            clearInterval(progressTimer);
+            progressBar.style.width = '100%';
+            percentText.textContent = '100%';
+            statusText.textContent = 'OCR 解析完成';
+
+            if (data.success) {
+                currentParsedText = data.data.text;
+                document.getElementById('preview-text').textContent =
+                    currentParsedText + (currentParsedText.length >= 8000 ? '\n\n... (已截断)' : '');
+                const stats = data.data.stats || {};
+                document.getElementById('stat-garble').textContent = stats.garble_rate || 0;
+                document.getElementById('stat-pages').textContent = stats.total_pages || 0;
+                document.getElementById('stat-tables').textContent = stats.total_tables || 0;
+                document.getElementById('stat-images').textContent = stats.total_images || 0;
+                document.getElementById('stat-chars').textContent = stats.text_length || 0;
+                document.getElementById('stat-ocr-used').style.display = 'inline';
+                document.getElementById('parse-warning').style.display = 'none';
+                showMessage('OCR 解析完成', 'success');
+            } else {
+                document.getElementById('preview-text').textContent = 'OCR 解析失败: ' + (data.error?.message || '未知错误');
+                showMessage('OCR 解析失败: ' + (data.error?.message || ''), 'error');
+            }
+        } catch (e) {
+            clearInterval(statusTimer);
+            clearInterval(progressTimer);
+            document.getElementById('preview-text').textContent = '请求失败: ' + e.message;
+            showMessage('请求失败: ' + e.message, 'error');
+        }
+    }
+
+    async function executeChunk() {
+        if (!currentParsedText) { showMessage('请先预览文本', 'error'); return; }
+        const strategy = document.querySelector('input[name="chunk-strategy"]:checked')?.value || 'fixed';
+        const chunkSize = strategy === 'fixed' ? 800 : 500;
+
+        currentChunks = [];
+        for (let i = 0; i < currentParsedText.length; i += chunkSize) {
+            currentChunks.push({
+                id: `chunk_${Math.random().toString(36).substr(2, 8)}`,
+                content: currentParsedText.substring(i, i + chunkSize),
+                index: Math.floor(i / chunkSize) + 1
+            });
+        }
+        renderChunks();
+        showEtlStep('chunk');
+        document.querySelectorAll('.section-btn')[2].classList.add('active');
+    }
+
+    function renderChunks() {
+        const list = document.getElementById('chunk-list');
+        const preview = currentChunks.slice(0, 5);
+        list.innerHTML = preview.map(c => `
+            <div class="chunk-preview">
+                <div class="chunk-id">#${c.index} — ${c.id}</div>
+                <div class="chunk-text">${esc(c.content.substring(0, 300))}${c.content.length > 300 ? '...' : ''}</div>
+                <div class="chunk-meta">长度: ${c.content.length} 字符</div>
+            </div>
+        `).join('');
+        if (currentChunks.length > 5) {
+            list.innerHTML += `<div style="text-align:center;color:#aaa;padding:10px;">还有 ${currentChunks.length - 5} 个分块...</div>`;
+        }
+    }
+
+    async function confirmChunking() {
+        if (!currentParsedText) { showMessage('请先预览文本', 'error'); return; }
+
+        try {
+            document.getElementById('chunk-status').textContent = '入库中...';
+            const res = await fetch(API_BASE + '/assets/chunks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    category: 'protocol',
+                    chunks: currentChunks.map(c => ({
+                        content: c.content,
+                        title: `Chunk ${c.index}`,
+                        metadata: { index: c.index, strategy: document.querySelector('input[name="chunk-strategy"]:checked')?.value || 'fixed' }
+                    }))
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('chunk-status').textContent = `✅ ${data.data.message}`;
+                showMessage(data.data.message, 'success');
+            } else {
+                document.getElementById('chunk-status').textContent = '入库失败';
+                showMessage('入库失败: ' + (data.error?.message || ''), 'error');
+            }
+        } catch (e) {
+            document.getElementById('chunk-status').textContent = '请求失败';
+            showMessage('入库请求失败: ' + e.message, 'error');
+        }
+    }
+
+    // ========== Phase 2-2: Retrieval Tuning ==========
+
+    function loadRetrievalParams() {
+        document.getElementById('topk-value').textContent = '10';
+        document.getElementById('threshold-value').textContent = '0.00';
+    }
+
+    async function runRetrieval() {
+        const query = document.getElementById('query-input').value.trim();
+        if (!query) { showMessage('请输入检索词', 'error'); return; }
+
+        document.getElementById('raw-chunks').innerHTML = '<div style="text-align:center;color:#888;padding:40px;">检索中...</div>';
+        document.getElementById('reranked-chunks').innerHTML = '<div style="text-align:center;color:#888;padding:40px;">检索中...</div>';
+
+        const topk = parseInt(document.getElementById('topk-slider').value);
+        const threshold = parseInt(document.getElementById('threshold-slider').value) / 100;
+
+        try {
+            const res = await fetch(API_BASE + '/assets/retrieve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, top_k: topk, threshold })
+            });
+            const data = await res.json();
+
+            if (data.success && data.data.chunks.length) {
+                const chunks = data.data.chunks;
+                const rawHtml = chunks.map(c => `
+                    <div class="chunk-preview">
+                        <div class="chunk-id">${esc(c.title)}</div>
+                        <div class="chunk-text">${esc(c.content)}</div>
+                        <div class="chunk-meta">来源: ${esc(c.source)} | 分类: ${esc(c.category)}</div>
+                    </div>
+                `).join('');
+                document.getElementById('raw-chunks').innerHTML = rawHtml || '<div style="color:#aaa;text-align:center;padding:40px;">无结果</div>';
+
+                if (document.getElementById('rerank-toggle').checked) {
+                    document.getElementById('reranked-chunks').innerHTML = rawHtml;
+                } else {
+                    document.getElementById('reranked-chunks').innerHTML =
+                        '<div style="color:#aaa;text-align:center;padding:40px;">启用Rerank后显示重排序结果</div>';
+                }
+            } else {
+                document.getElementById('raw-chunks').innerHTML =
+                    '<div style="color:#aaa;text-align:center;padding:40px;">无检索结果</div>';
+                document.getElementById('reranked-chunks').innerHTML =
+                    '<div style="color:#aaa;text-align:center;padding:40px;">无检索结果</div>';
+            }
+        } catch (e) {
+            showMessage('检索失败: ' + e.message, 'error');
+        }
+    }
+
+    // ========== Phase 3: Prompt Ops ==========
+
+    async function runRAG() {
+        const question = document.getElementById('ops-question').value.trim();
+        if (!question) { showMessage('请输入问题', 'error'); return; }
+
+        document.getElementById('rag-answer').innerHTML =
+            '<div style="text-align:center;color:#888;padding:60px;">检索生成中...</div>';
+
+        try {
+            const res = await fetch('/api/qa', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question })
+            });
+            const data = await res.json();
+
+            if (data.answer) {
+                document.getElementById('rag-answer').innerHTML =
+                    `<div style="white-space:pre-wrap;line-height:1.8;font-size:14px;">${data.answer}</div>`;
+            } else {
+                document.getElementById('rag-answer').innerHTML =
+                    `<div class="message message-error">回答失败: ${esc(data.error || '未知错误')}</div>`;
+            }
+        } catch (e) {
+            document.getElementById('rag-answer').innerHTML =
+                `<div class="message message-error">RAG执行失败: ${esc(e.message)}</div>`;
+        }
+    }
+
+    async function saveAsVersion() {
+        const name = document.getElementById('version-name')?.value?.trim() ||
+            ('v' + new Date().toISOString().substring(0, 16).replace('T', ' '));
+        const promptTemplate = document.getElementById('system-prompt-editor')?.value || '';
+
+        try {
+            await apiCall('/experiments', 'POST', {
+                config_name: name,
+                chunk_size: 800,
+                overlap_ratio: 0.15,
+                splitter_type: 'smart',
+                description: document.getElementById('version-desc')?.value || '',
+                prompt_template: promptTemplate,
+                model: document.getElementById('model-select')?.value || 'MiniMax-M2.7',
+                temperature: parseFloat(document.getElementById('temp-input')?.value || '0.3'),
+                max_tokens: parseInt(document.getElementById('maxtokens-input')?.value || '1200')
+            });
+            showMessage('版本保存成功', 'success');
+            loadVersions();
+        } catch (e) { showMessage('保存失败: ' + e.message, 'error'); }
+    }
+
+    // ========== Phase 4: Version Control ==========
+
+    async function loadVersions() {
+        const container = document.getElementById('version-list');
+        try {
+            const data = await apiCall('/experiments');
+            const configs = data.data || [];
+
+            if (!configs.length) {
+                container.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px;">暂无版本</div>';
+                return;
+            }
+
+            container.innerHTML = configs.map(c => {
+                const statusClass = c.status === 'active' ? 'vtag-active' : c.status === 'archived' ? 'vtag-archived' : 'vtag-draft';
+                return `
+                <div class="version-item ${currentVersionId === c.config_id ? 'selected' : ''}" onclick="selectVersion('${esc(c.config_id)}')">
+                    <div class="vnum">${esc(c.config_name)}</div>
+                    <div class="vinfo">
+                        <div class="vname">${c.chunk_size}chars / ${((c.overlap_ratio||0)*100).toFixed(0)}%overlap</div>
+                        <div class="vdate">${formatDate(c.created_at)}</div>
+                    </div>
+                    <span class="vtag ${statusClass}">${esc(c.status || 'draft')}</span>
+                </div>
+            `}).join('');
+        } catch (e) {
+            container.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px;">加载失败</div>';
+        }
+    }
+
+    async function selectVersion(configId) {
+        currentVersionId = configId;
+        loadVersions(); // re-render with selection
+
+        try {
+            const data = await apiCall(`/experiments/${configId}`);
+            if (data.success && data.data) {
+                const c = data.data;
+                document.getElementById('current-snapshot').innerHTML = `
+                    <div style="margin-bottom:12px;">
+                        <strong>${esc(c.config_name)}</strong>
+                        <span class="vtag ${c.status === 'active' ? 'vtag-active' : c.status === 'archived' ? 'vtag-archived' : 'vtag-draft'}" style="margin-left:8px;">${esc(c.status)}</span>
+                    </div>
+                    <div class="kb-meta" style="gap:16px;flex-direction:column;align-items:start;">
+                        <span>Chunk Size: <strong>${c.chunk_size}</strong></span>
+                        <span>Overlap: <strong>${((c.overlap_ratio||0)*100).toFixed(0)}%</strong></span>
+                        <span>分块策略: <strong>${esc(c.splitter_type)}</strong></span>
+                        <span>创建时间: <strong>${formatDate(c.created_at)}</strong></span>
+                        ${c.description ? `<span>说明: ${esc(c.description)}</span>` : ''}
+                        ${c.prompt_template ? `<div style="margin-top:8px;"><strong>Prompt模板:</strong><pre style="background:#f5f5f5;padding:8px;border-radius:4px;font-size:11px;max-height:150px;overflow:auto;margin-top:4px;">${esc(c.prompt_template.substring(0, 300))}</pre></div>` : ''}
+                    </div>
+                    <div style="margin-top:16px;display:flex;gap:8px;">
+                        ${c.status !== 'active' ? `<button class="btn btn-success btn-sm" onclick="activateVersion('${esc(configId)}')">设为Active</button>` : ''}
+                        ${c.status !== 'archived' ? `<button class="btn btn-secondary btn-sm" onclick="archiveVersion('${esc(configId)}')">Archive</button>` : ''}
+                        <button class="btn btn-danger btn-sm" onclick="deleteVersion('${esc(configId)}')">删除</button>
+                    </div>
+                `;
+            }
+        } catch (e) {
+            document.getElementById('current-snapshot').innerHTML =
+                '<div style="color:#aaa;text-align:center;padding:20px;">加载详情失败: ' + esc(e.message) + '</div>';
+        }
+    }
+
+    async function activateVersion(configId) {
+        try {
+            await apiCall(`/experiments/${configId}/activate`, 'POST');
+            showMessage('已设为当前生效版本', 'success');
+            loadVersions();
+            if (currentVersionId) selectVersion(currentVersionId);
+        } catch (e) { showMessage('激活失败: ' + e.message, 'error'); }
+    }
+
+    async function archiveVersion(configId) {
+        try {
+            await apiCall(`/experiments/${configId}`, 'PUT', { status: 'archived' });
+            showMessage('已归档', 'success');
+            loadVersions();
+            if (currentVersionId) selectVersion(currentVersionId);
+        } catch (e) { showMessage('归档失败: ' + e.message, 'error'); }
+    }
+
+    async function deleteVersion(configId) {
+        if (!confirm('确认删除此版本？')) return;
+        try {
+            await apiCall(`/experiments/${configId}`, 'DELETE');
+            currentVersionId = null;
+            document.getElementById('current-snapshot').innerHTML =
+                '<div style="color:#aaa;text-align:center;padding:20px;">点击左侧版本查看详情</div>';
+            showMessage('删除成功', 'success');
+            loadVersions();
+        } catch (e) { showMessage('删除失败: ' + e.message, 'error'); }
+    }
+
+    async function saveNewVersion() {
+        const name = document.getElementById('version-name')?.value?.trim();
+        if (!name) { showMessage('请输入版本名称', 'error'); return; }
+        const promptTemplate = document.getElementById('system-prompt-editor')?.value || '';
+
+        try {
+            await apiCall('/experiments', 'POST', {
+                config_name: name,
+                chunk_size: 800,
+                overlap_ratio: 0.15,
+                splitter_type: 'smart',
+                description: document.getElementById('version-desc')?.value || '',
+                prompt_template: promptTemplate,
+                model: document.getElementById('model-select')?.value || 'MiniMax-M2.7',
+                temperature: parseFloat(document.getElementById('temp-input')?.value || '0.3'),
+                max_tokens: parseInt(document.getElementById('maxtokens-input')?.value || '1200')
+            });
+            showMessage('版本保存成功', 'success');
+            loadVersions();
+        } catch (e) { showMessage('保存失败: ' + e.message, 'error'); }
+    }
+
+    async function publishVersion() {
+        const active = document.querySelector('.vtag-active')?.closest('.version-item');
+        if (!active) { showMessage('没有可发布的版本', 'error'); return; }
+        showMessage('Publish功能开发中', 'info');
+    }
+
+    // ========== Init ==========
+    loadKBs();
+</script>
+</body>
+</html>

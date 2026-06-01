@@ -12,14 +12,24 @@ class ToolResult:
 
 class ToolRegistry:
     _tools: Dict[str, Callable] = {}
-    _extensions: Dict[str, str] = {}
+    _extensions: Dict[str, List[tuple]] = {}
 
     @classmethod
-    def register(cls, name: str, handler: Callable, extensions: List[str] = None):
+    def register(cls, name: str, handler: Callable, extensions: List[str] = None, priority: int = 0):
         cls._tools[name] = handler
         if extensions:
             for ext in extensions:
-                cls._extensions[ext.lower()] = name
+                ext_lower = ext.lower()
+                if ext_lower not in cls._extensions:
+                    cls._extensions[ext_lower] = []
+                inserted = False
+                for i, (p, _) in enumerate(cls._extensions[ext_lower]):
+                    if priority > p:
+                        cls._extensions[ext_lower].insert(i, (priority, name))
+                        inserted = True
+                        break
+                if not inserted:
+                    cls._extensions[ext_lower].append((priority, name))
 
     @classmethod
     def get(cls, name: str) -> Optional[Callable]:
@@ -27,7 +37,12 @@ class ToolRegistry:
 
     @classmethod
     def get_by_extension(cls, ext: str) -> Optional[str]:
-        return cls._extensions.get(ext.lower())
+        ext_list = cls._extensions.get(ext.lower(), [])
+        return ext_list[0][1] if ext_list else None
+
+    @classmethod
+    def list_by_extension(cls, ext: str) -> List[str]:
+        return [name for _, name in cls._extensions.get(ext.lower(), [])]
 
     @classmethod
     def list_tools(cls) -> List[str]:
@@ -44,14 +59,15 @@ class ToolExecutor:
         os.makedirs(parsed_dir, exist_ok=True)
         self._register_default_tools()
 
-    def _get_parsed_cache_path(self, file_path: str) -> str:
+    def _get_parsed_cache_path(self, file_path: str, tool_name: str = None) -> str:
         """Get the cache file path for a parsed source file."""
         import hashlib
-        file_hash = self._get_file_hash(file_path)
         rel_path = os.path.relpath(file_path, os.getcwd())
-        cache_key = hashlib.md5(rel_path.encode()).hexdigest()[:12]
+        # 缓存 key 包含工具名称，这样不同工具不会共享缓存
+        cache_key_base = f"{rel_path}_{tool_name or 'default'}"
+        cache_key = hashlib.md5(cache_key_base.encode()).hexdigest()[:12]
         cache_dir = os.path.join(self.parsed_dir, cache_key)
-        return os.path.join(cache_dir, f"{os.path.basename(file_path)}.cache.json")
+        return os.path.join(cache_dir, f"{os.path.basename(file_path)}_{tool_name or 'default'}.cache.json")
 
     def _get_file_hash(self, file_path: str) -> str:
         """Compute hash of source file for change detection."""
@@ -59,9 +75,9 @@ class ToolExecutor:
         with open(file_path, 'rb') as f:
             return hashlib.md5(f.read()).hexdigest()
 
-    def _load_cached_parse(self, file_path: str) -> Optional[dict]:
+    def _load_cached_parse(self, file_path: str, tool_name: str = None) -> Optional[dict]:
         """Load cached parse result if file hasn't changed."""
-        cache_path = self._get_parsed_cache_path(file_path)
+        cache_path = self._get_parsed_cache_path(file_path, tool_name)
         if not os.path.exists(cache_path):
             return None
 
@@ -78,12 +94,12 @@ class ToolExecutor:
         except Exception:
             return None
 
-    def _save_cached_parse(self, file_path: str, data: Any) -> None:
+    def _save_cached_parse(self, file_path: str, data: Any, tool_name: str = None) -> None:
         """Save parse result to cache."""
         import json
         import hashlib
 
-        cache_path = self._get_parsed_cache_path(file_path)
+        cache_path = self._get_parsed_cache_path(file_path, tool_name)
         cache_dir = os.path.dirname(cache_path)
         os.makedirs(cache_dir, exist_ok=True)
 
@@ -96,12 +112,14 @@ class ToolExecutor:
             json.dump(cache, f, ensure_ascii=False, indent=2)
 
     def _register_default_tools(self):
-        self.registry.register('pdf', self._parse_pdf, ['.pdf'])
-        self.registry.register('paddleocr', self._parse_pdf_paddleocr, ['.pdf'])
-        self.registry.register('docx', self._parse_docx, ['.docx', '.doc'])
-        self.registry.register('excel', self._parse_excel, ['.xlsx', '.xls'])
-        self.registry.register('txt', self._parse_txt, ['.txt'])
-        self.registry.register('md', self._parse_md, ['.md'])
+        # priority 数值越大越优先，pdfplumber(10) > paddleocr(0)
+        # 主线路: pdfplumber → 失败则 paddleocr OCR 回退
+        self.registry.register('pdf', self._parse_pdf, ['.pdf'], priority=10)
+        self.registry.register('paddleocr', self._parse_pdf_paddleocr, ['.pdf'], priority=0)
+        self.registry.register('docx', self._parse_docx, ['.docx', '.doc'], priority=0)
+        self.registry.register('excel', self._parse_excel, ['.xlsx', '.xls'], priority=0)
+        self.registry.register('txt', self._parse_txt, ['.txt'], priority=0)
+        self.registry.register('md', self._parse_md, ['.md'], priority=0)
 
     def _parse_pdf(self, file_path: str, **kwargs) -> ToolResult:
         try:
@@ -213,9 +231,16 @@ class ToolExecutor:
 
     def _parse_txt(self, file_path: str, **kwargs) -> ToolResult:
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            return ToolResult(success=True, data=content)
+            # Try UTF-8 first, fallback to GBK for Chinese Windows files
+            for encoding in ('utf-8', 'gbk', 'gb2312'):
+                try:
+                    with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+                        content = f.read()
+                    if content.strip():
+                        return ToolResult(success=True, data=content)
+                except Exception:
+                    continue
+            return ToolResult(success=False, data=None, error="无法解码文件")
         except Exception as e:
             return ToolResult(success=False, data=None, error=str(e))
 
@@ -281,8 +306,8 @@ class ToolExecutor:
 
     def _parse_pdf_paddleocr(self, file_path: str, **kwargs) -> ToolResult:
         try:
-            # Check cache first
-            cached = self._load_cached_parse(file_path)
+            # Check cache first (use tool_name='paddleocr' for separate cache)
+            cached = self._load_cached_parse(file_path, tool_name='paddleocr')
             if cached is not None:
                 print(f"[PaddleOCR] Cache hit: {os.path.basename(file_path)}")
                 return ToolResult(success=True, data=cached['data'])
@@ -293,8 +318,8 @@ class ToolExecutor:
             parser = EnhancedPDFParser(output_dir or os.path.join(os.path.dirname(file_path), "paddleocr_output"))
             blocks = parser.parse_and_process(file_path, use_llm_reorganize=use_llm)
 
-            # Save to cache
-            self._save_cached_parse(file_path, blocks)
+            # Save to cache with tool_name
+            self._save_cached_parse(file_path, blocks, tool_name='paddleocr')
 
             return ToolResult(success=True, data=blocks)
         except Exception as e:
@@ -312,15 +337,25 @@ class ToolExecutor:
     def execute(self, file_path: str, tool_name: str = None, **kwargs) -> ToolResult:
         if tool_name is None:
             ext = os.path.splitext(file_path)[1]
-            tool_name = self.registry.get_by_extension(ext)
-            if tool_name is None:
+            tool_names = self.registry.list_by_extension(ext)
+            if not tool_names:
                 return ToolResult(success=False, data=None, error=f"No tool found for extension: {ext}")
 
-        tool = self.registry.get(tool_name)
-        if tool is None:
-            return ToolResult(success=False, data=None, error=f"Tool not found: {tool_name}")
-
-        return tool(file_path, **kwargs)
+            # 按优先级尝试每个工具
+            errors = []
+            for tn in tool_names:
+                tool = self.registry.get(tn)
+                if tool:
+                    result = tool(file_path, **kwargs)
+                    if result.success:
+                        return result
+                    errors.append(f"{tn}: {result.error}")
+            return ToolResult(success=False, data=None, error="; ".join(errors))
+        else:
+            tool = self.registry.get(tool_name)
+            if tool is None:
+                return ToolResult(success=False, data=None, error=f"Tool not found: {tool_name}")
+            return tool(file_path, **kwargs)
 
     def execute_by_extension(self, file_path: str, **kwargs) -> ToolResult:
         return self.execute(file_path, **kwargs)

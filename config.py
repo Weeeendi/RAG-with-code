@@ -11,6 +11,10 @@ PADDLEOCR_MODEL = "PaddleOCR-VL-1.5"
 DB_PATH = "data/metadata.db"
 VECTOR_DIR = "knowledge_base/vectorized"
 
+# Labs (Data-to-Retrieval Loop) configuration
+LABS_DB_PATH = "data/labs.db"
+LABS_UPLOAD_DIR = "labs/uploads"
+
 SOURCE_DIRS = {
     "c_code": "knowledge_base/raw/c_code",
     "protocol_docs": "knowledge_base/raw/protocol_docs",
