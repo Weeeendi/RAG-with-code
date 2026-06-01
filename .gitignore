@@ -18,9 +18,13 @@ env/
 # Project specific
 data/*.db
 data/*.db-journal
-knowledge_base/vectorized/
-knowledge_base/raw/
+data/kb_config.json
+knowledge_base/
 web/static_uploads/
+
+# Local config (do not commit)
+.claude/settings.json
+.claude/settings.local.json
 
 # Logs
 *.log
