@@ -216,6 +216,10 @@ class ProtocolDocParser:
         return blocks
 
     def _classify_image_with_vision(self, img_path: str, context: str = "") -> tuple:
+        # Skip vision API if already processed many images (performance optimization)
+        if self._image_counter >= 10:
+            return False, ""
+
         try:
             import requests
             from config import MINIMAX_API_KEY
@@ -253,7 +257,7 @@ class ProtocolDocParser:
 
             session = requests.Session()
             session.trust_env = False
-            response = session.post(url, headers=headers, json=payload, timeout=60)
+            response = session.post(url, headers=headers, json=payload, timeout=30)
 
             if response.status_code == 200:
                 result = response.json()

@@ -3,503 +3,637 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Data-to-Retrieval Loop 实验室</title>
+    <title>检索测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
-        .container { max-width: 1400px; margin: 0 auto; }
-        h1 { color: #333; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #007bff; }
-        h2 { color: #555; margin: 20px 0 10px; font-size: 1.2em; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; color: #333; }
 
-        .tabs { display: flex; gap: 5px; margin-bottom: 20px; flex-wrap: wrap; }
-        .tab { padding: 10px 20px; background: #e9ecef; border: none; border-radius: 5px 5px 0 0; cursor: pointer; }
-        .tab.active { background: #007bff; color: white; }
-        .tab:hover { background: #dde2e6; }
-        .tab.active:hover { background: #0056b3; }
+        /* Markdown Rendering */
+        .rag-answer { background: #f0f7ff; border-radius: 8px; padding: 16px; font-size: 14px; line-height: 1.8; }
+        .rag-answer h1, .rag-answer h2, .rag-answer h3, .rag-answer h4 { margin: 12px 0 8px; color: #1a1a1a; }
+        .rag-answer h1 { font-size: 18px; }
+        .rag-answer h2 { font-size: 16px; }
+        .rag-answer h3 { font-size: 15px; }
+        .rag-answer p { margin: 8px 0; }
+        .rag-answer ul, .rag-answer ol { margin: 8px 0; padding-left: 24px; }
+        .rag-answer li { margin: 4px 0; }
+        .rag-answer code { background: #e8f0ff; padding: 2px 6px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 13px; }
+        .rag-answer pre { background: #1a1a1a; color: #f8f8f2; padding: 12px; border-radius: 6px; overflow-x: auto; margin: 12px 0; }
+        .rag-answer pre code { background: none; padding: 0; color: inherit; }
+        .rag-answer blockquote { border-left: 4px solid #3b82f6; margin: 8px 0; padding: 8px 16px; background: #e8f4ff; color: #374151; }
+        .rag-answer strong { color: #3b82f6; }
+        .rag-answer table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+        .rag-answer th, .rag-answer td { border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }
+        .rag-answer th { background: #f3f4f6; font-weight: 600; }
 
-        .panel { background: white; padding: 20px; border-radius: 0 5px 5px 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .layout { display: flex; min-height: 100vh; }
 
-        .section { margin-bottom: 30px; padding: 15px; background: #f8f9fa; border-radius: 5px; }
-        .section h3 { margin-bottom: 15px; color: #333; }
+        /* Sidebar */
+        .sidebar { width: 220px; background: #001529; color: #fff; position: fixed; height: 100vh; overflow-y: auto; }
+        .sidebar-logo { padding: 20px; font-size: 16px; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .sidebar-nav { padding: 10px 0; }
+        .nav-section { padding: 15px 0 5px; font-size: 11px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 1px; padding-left: 20px; }
+        .nav-item { padding: 10px 20px; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 10px; transition: all 0.2s; color: rgba(255,255,255,0.85); }
+        .nav-item:hover { background: rgba(255,255,255,0.08); }
+        .nav-item.active { background: #1890ff; color: #fff; }
 
-        .form-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-        input, select, textarea { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
-        input:focus, select:focus, textarea:focus { outline: none; border-color: #007bff; }
-        textarea { width: 100%; min-height: 80px; resize: vertical; }
+        /* Main */
+        .main { margin-left: 220px; flex: 1; padding: 24px 32px; }
 
-        button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        button.danger { background: #dc3545; }
-        button.danger:hover { background: #c82333; }
-        button.success { background: #28a745; }
-        button.success:hover { background: #218838; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
+        .page-header { margin-bottom: 24px; }
+        .page-title { font-size: 20px; font-weight: 600; }
+        .page-subtitle { font-size: 13px; color: #888; margin-top: 4px; }
 
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background: #f8f9fa; font-weight: 600; }
-        tr:hover { background: #f8f9fa; }
+        /* Test Console Layout */
+        .console-layout { display: grid; grid-template-columns: 280px 1fr 1fr; gap: 20px; height: calc(100vh - 180px); }
 
-        .tag { display: inline-block; padding: 2px 8px; background: #e9ecef; border-radius: 3px; font-size: 12px; margin: 2px; }
-        .tag.protocol { background: #d4edda; color: #155724; }
-        .tag.c_code { background: #cce5ff; color: #004085; }
-        .tag.log { background: #fff3cd; color: #856404; }
+        /* Panel */
+        .panel { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; flex-direction: column; overflow: hidden; }
+        .panel-header { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+        .panel-body { padding: 16px 20px; flex: 1; overflow-y: auto; }
 
-        .status { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 12px; }
-        .status.uploaded { background: #cce5ff; color: #004085; }
-        .status.parsed { background: #d4edda; color: #155724; }
-        .status.indexed { background: #28a745; color: white; }
-        .status.error { background: #f8d7da; color: #721c24; }
-        .status.draft { background: #e2e3e5; color: #383d41; }
-        .status.active { background: #28a745; color: white; }
+        /* Settings Panel */
+        .setting-group { margin-bottom: 20px; }
+        .setting-label { font-size: 12px; font-weight: 600; color: #666; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+        .setting-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .setting-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+        .setting-input:focus { outline: none; border-color: #3b82f6; }
+        .setting-hint { font-size: 11px; color: #888; margin-top: 4px; }
 
-        .result-box { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 15px; max-height: 400px; overflow-y: auto; }
-        .result-box pre { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+        /* Toggle */
+        .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .toggle { width: 40px; height: 22px; background: #ddd; border-radius: 11px; cursor: pointer; position: relative; transition: background 0.2s; }
+        .toggle.active { background: #3b82f6; }
+        .toggle::after { content: ''; position: absolute; width: 18px; height: 18px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: transform 0.2s; }
+        .toggle.active::after { transform: translateX(18px); }
 
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }
-        .card { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .card h4 { margin-bottom: 10px; color: #333; }
-        .card .meta { font-size: 12px; color: #666; }
+        /* Query Panel */
+        .query-input { width: 100%; min-height: 120px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; resize: vertical; font-family: inherit; }
+        .query-input:focus { outline: none; border-color: #3b82f6; }
+        .query-actions { display: flex; gap: 12px; margin-top: 12px; }
 
-        .metric { text-align: center; padding: 15px; }
-        .metric .value { font-size: 2em; font-weight: bold; color: #007bff; }
-        .metric .label { color: #666; font-size: 14px; }
+        /* Results Panel */
+        .result-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+        .result-tab { padding: 6px 12px; border-radius: 6px; border: none; background: transparent; cursor: pointer; font-size: 13px; color: #666; }
+        .result-tab.active { background: #3b82f6; color: #fff; }
 
-        .json-viewer { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 5px; overflow-x: auto; }
-        .json-viewer pre { margin: 0; font-family: 'Consolas', monospace; font-size: 13px; }
+        .chunk-item { padding: 12px; background: #f9fafb; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid #3b82f6; }
+        .chunk-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .chunk-title { font-weight: 600; font-size: 13px; color: #1a1a1a; }
+        .chunk-score { font-size: 12px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+        .score-high { background: #dcfce7; color: #16a34a; }
+        .score-mid { background: #fef3c7; color: #d97706; }
+        .score-low { background: #fee2e2; color: #dc2626; }
+        .chunk-content { font-size: 13px; color: #555; line-height: 1.6; max-height: 100px; overflow: hidden; }
+        .chunk-source { font-size: 11px; color: #888; margin-top: 6px; }
 
-        .loading { text-align: center; padding: 20px; color: #666; }
-        .error { color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px; margin: 10px 0; }
-        .success { color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px; margin: 10px 0; }
+        /* CoT Display */
+        .cot-step { padding: 12px; background: #f9fafb; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid #8b5cf6; }
+        .cot-step-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 600; font-size: 13px; }
+        .cot-step-num { background: #8b5cf6; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+        .cot-thought { background: #ede9fe; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
+        .cot-action { background: #dbeafe; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; color: #1e40af; }
+        .cot-observation { background: #dcfce7; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; color: #166534; }
+        .cot-result { background: #fef3c7; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+        .cot-intent { background: #fce7f3; padding: 8px 12px; border-radius: 6px; margin-top: 8px; font-size: 13px; }
 
-        .pagination { display: flex; gap: 5px; margin-top: 10px; }
-        .pagination button { padding: 5px 10px; }
+        /* Version Snapshot */
+        .version-card { padding: 12px; background: #f9fafb; border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; }
+        .version-card:hover { background: #e0efff; }
+        .version-card.active { background: #e0efff; border: 1px solid #3b82f6; }
+        .version-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+        .version-meta { font-size: 11px; color: #888; }
+        .version-status { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-left: 8px; }
+        .status-active { background: #dcfce7; color: #16a34a; }
+        .status-draft { background: #fef3c7; color: #d97706; }
+
+        /* Buttons */
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #3b82f6; color: #fff; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-success { background: #22c55e; color: #fff; }
+        .btn-success:hover { background: #16a34a; }
+        .btn-secondary { background: #f3f4f6; color: #374151; }
+        .btn-secondary:hover { background: #e5e7eb; }
+
+        /* Loading */
+        .loading { display: flex; align-items: center; justify-content: center; padding: 40px; color: #888; }
+        .loading::before { content: ''; width: 20px; height: 20px; border: 2px solid #e5e7eb; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 10px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Modal */
+        .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal.visible { display: flex; }
+        .modal-content { background: #fff; border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; }
+        .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+        .modal-title { font-size: 16px; font-weight: 600; }
+        .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
+
+        /* Metrics */
+        .metrics-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+        .metric-card { background: #f9fafb; border-radius: 8px; padding: 12px; text-align: center; }
+        .metric-value { font-size: 24px; font-weight: 700; color: #3b82f6; }
+        .metric-label { font-size: 11px; color: #888; margin-top: 4px; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔬 Data-to-Retrieval Loop 实验室</h1>
-
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('assets')">📁 资产管理</button>
-            <button class="tab" onclick="showTab('experiments')">⚙️ 实验配置</button>
-            <button class="tab" onclick="showTab('recall')">📊 召回测试</button>
-            <button class="tab" onclick="showTab('provenance')">🔍 溯源可视化</button>
-            <button class="tab" onclick="showTab('debug')">🐛 调试工具</button>
-        </div>
-
-        <!-- 资产管理面板 -->
-        <div id="panel-assets" class="panel">
-            <div class="section">
-                <h3>上传文件</h3>
-                <div class="form-row">
-                    <input type="file" id="file-input" accept=".pdf,.docx,.xlsx,.txt,.c,.h,.log,.md">
-                    <input type="text" id="file-tags" placeholder="标签 (逗号分隔)" style="width: 200px;">
-                    <select id="file-security">
-                        <option value="internal">内部</option>
-                        <option value="public">公开</option>
-                        <option value="confidential">机密</option>
-                        <option value="secret">绝密</option>
-                    </select>
-                    <button onclick="uploadFile()">上传</button>
-                </div>
-                <div id="upload-result"></div>
+<div class="layout">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-logo">📚 知识库管理</div>
+        <div class="sidebar-nav">
+            <div class="nav-section">当前知识库</div>
+            <div class="nav-item" onclick="goToDocs()">
+                <span>📄</span> 文档管理
             </div>
-
-            <div class="section">
-                <h3>资产列表</h3>
-                <div class="form-row">
-                    <select id="filter-status" onchange="loadAssets()">
-                        <option value="">全部状态</option>
-                        <option value="uploaded">已上传</option>
-                        <option value="parsing">解析中</option>
-                        <option value="parsed">已解析</option>
-                        <option value="indexing">索引中</option>
-                        <option value="indexed">已索引</option>
-                        <option value="error">错误</option>
-                    </select>
-                    <select id="filter-category" onchange="loadAssets()">
-                        <option value="">全部分类</option>
-                        <option value="protocol">协议文档</option>
-                        <option value="c_code">C代码</option>
-                        <option value="log">日志</option>
-                    </select>
-                    <button onclick="loadAssets()">刷新</button>
-                </div>
-                <div id="assets-table"></div>
+            <div class="nav-item" onclick="goToPipeline()">
+                <span>⬆️</span> 文档管线
             </div>
-        </div>
-
-        <!-- 实验配置面板 -->
-        <div id="panel-experiments" class="panel" style="display:none;">
-            <div class="section">
-                <h3>创建实验配置</h3>
-                <div class="form-row">
-                    <input type="text" id="exp-name" placeholder="配置名称" style="width: 150px;">
-                    <select id="exp-chunk-size">
-                        <option value="500">Chunk: 500</option>
-                        <option value="800" selected>Chunk: 800</option>
-                        <option value="1000">Chunk: 1000</option>
-                    </select>
-                    <select id="exp-overlap">
-                        <option value="0.10">Overlap: 10%</option>
-                        <option value="0.15" selected>Overlap: 15%</option>
-                    </select>
-                    <select id="exp-splitter">
-                        <option value="smart">Smart</option>
-                        <option value="recursive">Recursive</option>
-                        <option value="character">Character</option>
-                    </select>
-                    <label><input type="checkbox" id="exp-shadow"> 影子索引</label>
-                    <button onclick="createExperiment()">创建</button>
-                </div>
-                <div id="exp-result"></div>
+            <div class="nav-item active">
+                <span>🔬</span> 检索测试
             </div>
-
-            <div class="section">
-                <h3>实验配置列表</h3>
-                <div id="experiments-table"></div>
-            </div>
-        </div>
-
-        <!-- 召回测试面板 -->
-        <div id="panel-recall" class="panel" style="display:none;">
-            <div class="section">
-                <h3>创建问题集</h3>
-                <div class="form-row">
-                    <input type="text" id="set-name" placeholder="问题集名称" style="width: 150px;">
-                    <input type="text" id="set-category" placeholder="分类" style="width: 100px;">
-                    <button onclick="createQuestionSet()">创建</button>
-                </div>
-            </div>
-
-            <div class="section">
-                <h3>问题集列表</h3>
-                <div id="sets-list"></div>
-            </div>
-
-            <div class="section">
-                <h3>执行评估</h3>
-                <div class="form-row">
-                    <select id="eval-config">
-                        <option value="">选择配置</option>
-                    </select>
-                    <select id="eval-set">
-                        <option value="">选择问题集</option>
-                    </select>
-                    <button onclick="runEvaluation()">执行评估</button>
-                </div>
-                <div id="eval-result"></div>
-            </div>
-        </div>
-
-        <!-- 溯源可视化面板 -->
-        <div id="panel-provenance" class="panel" style="display:none;">
-            <div class="section">
-                <h3>查询分块溯源</h3>
-                <div class="form-row">
-                    <input type="text" id="chunk-id" placeholder="分块ID" style="width: 250px;">
-                    <button onclick="getChunkProvenance()">查询</button>
-                </div>
-                <div id="provenance-result"></div>
-            </div>
-
-            <div class="section">
-                <h3>创建分块映射</h3>
-                <div class="form-row">
-                    <input type="text" id="map-asset-id" placeholder="资产ID" style="width: 200px;">
-                    <input type="text" id="map-chunk-id" placeholder="分块ID" style="width: 200px;">
-                    <input type="number" id="map-page" placeholder="页码" style="width: 80px;">
-                    <input type="number" id="map-line-start" placeholder="起始行" style="width: 80px;">
-                    <input type="number" id="map-line-end" placeholder="结束行" style="width: 80px;">
-                    <button onclick="createChunkMapping()">创建映射</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- 调试工具面板 -->
-        <div id="panel-debug" class="panel" style="display:none;">
-            <div class="section">
-                <h3>API 调试</h3>
-                <div class="form-row">
-                    <select id="debug-method">
-                        <option value="GET">GET</option>
-                        <option value="POST">POST</option>
-                        <option value="PUT">PUT</option>
-                        <option value="DELETE">DELETE</option>
-                    </select>
-                    <input type="text" id="debug-url" placeholder="/api/labs/..." style="width: 300px;">
-                    <button onclick="sendDebugRequest()">发送</button>
-                </div>
-                <textarea id="debug-body" placeholder="请求体 (JSON)" style="width: 100%; height: 100px; margin-top: 10px;"></textarea>
-                <div id="debug-result" class="json-viewer"><pre></pre></div>
+            <div class="nav-section">其他</div>
+            <div class="nav-item" onclick="goHome()">
+                <span>🏠</span> 返回列表
             </div>
         </div>
     </div>
 
-    <script>
-        const API_BASE = '/api/labs';
+    <!-- Main Content -->
+    <div class="main">
+        <div class="page-header">
+            <div class="page-title">检索测试</div>
+            <div class="page-subtitle">单点调试控制台 - 区分"没搜到"和"答错了"</div>
+        </div>
 
-        function showTab(tab) {
-            document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.getElementById('panel-' + tab).style.display = 'block';
-            event.target.classList.add('active');
-
-            if (tab === 'assets') loadAssets();
-            else if (tab === 'experiments') loadExperiments();
-            else if (tab === 'recall') { loadQuestionSets(); loadConfigOptions(); }
-        }
-
-        // ========== Assets ==========
-        function uploadFile() {
-            const fileInput = document.getElementById('file-input');
-            const tags = document.getElementById('file-tags').value;
-            const security = document.getElementById('file-security').value;
-
-            if (!fileInput.files[0]) {
-                showResult('upload-result', '请选择文件', 'error');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('tags', tags);
-            formData.append('security_level', security);
-
-            fetch(API_BASE + '/assets/upload', { method: 'POST', body: formData })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        showResult('upload-result', '上传成功: ' + data.data.asset_id, 'success');
-                        loadAssets();
-                    } else {
-                        showResult('upload-result', '失败: ' + JSON.stringify(data.error), 'error');
-                    }
-                })
-                .catch(e => showResult('upload-result', '错误: ' + e, 'error'));
-        }
-
-        function loadAssets() {
-            const status = document.getElementById('filter-status').value;
-            const category = document.getElementById('filter-category').value;
-            let url = API_BASE + '/assets?limit=100';
-            if (status) url += '&status=' + status;
-            if (category) url += '&category=' + category;
-
-            fetch(url).then(r => r.json()).then(data => {
-                const html = data.data.length ? `
-                    <table>
-                        <tr><th>文件名</th><th>大小</th><th>分类</th><th>状态</th><th>标签</th><th>操作</th></tr>
-                        ${data.data.map(a => `
-                            <tr>
-                                <td>${a.file_name}</td>
-                                <td>${(a.file_size/1024).toFixed(1)} KB</td>
-                                <td><span class="tag ${a.category}">${a.category}</span></td>
-                                <td><span class="status ${a.status}">${a.status}</span></td>
-                                <td>${(a.tags||[]).map(t => `<span class="tag">${t}</span>`).join('')}</td>
-                                <td>
-                                    <button class="danger" onclick="deleteAsset('${a.asset_id}')">删除</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </table>
-                ` : '<p>暂无资产</p>';
-                document.getElementById('assets-table').innerHTML = html;
-            });
-        }
-
-        function deleteAsset(id) {
-            if (!confirm('确定删除?')) return;
-            fetch(API_BASE + '/assets/' + id, { method: 'DELETE' })
-                .then(r => r.json())
-                .then(data => { alert(data.success ? '删除成功' : '失败'); loadAssets(); });
-        }
-
-        // ========== Experiments ==========
-        function createExperiment() {
-            const name = document.getElementById('exp-name').value;
-            const chunkSize = document.getElementById('exp-chunk-size').value;
-            const overlap = document.getElementById('exp-overlap').value;
-            const splitter = document.getElementById('exp-splitter').value;
-            const isShadow = document.getElementById('exp-shadow').checked;
-
-            if (!name) { showResult('exp-result', '请输入配置名称', 'error'); return; }
-
-            fetch(API_BASE + '/experiments', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ config_name: name, chunk_size: +chunkSize, overlap_ratio: +overlap, splitter_type: splitter, is_shadow: isShadow })
-            }).then(r => r.json()).then(data => {
-                if (data.success) {
-                    showResult('exp-result', '创建成功: ' + data.data.config_id, 'success');
-                    loadExperiments();
-                } else {
-                    showResult('exp-result', '失败: ' + JSON.stringify(data.error), 'error');
-                }
-            });
-        }
-
-        function loadExperiments() {
-            fetch(API_BASE + '/experiments').then(r => r.json()).then(data => {
-                const html = data.data.length ? `
-                    <table>
-                        <tr><th>名称</th><th>Chunk</th><th>Overlap</th><th>类型</th><th>状态</th><th>操作</th></tr>
-                        ${data.data.map(e => `
-                            <tr>
-                                <td>${e.config_name}</td>
-                                <td>${e.chunk_size}</td>
-                                <td>${(e.overlap_ratio*100).toFixed(0)}%</td>
-                                <td>${e.splitter_type}</td>
-                                <td><span class="status ${e.status}">${e.status}</span></td>
-                                <td>
-                                    ${e.status === 'draft' ? `<button class="success" onclick="activateConfig('${e.config_id}')">激活</button>` : ''}
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </table>
-                ` : '<p>暂无配置</p>';
-                document.getElementById('experiments-table').innerHTML = html;
-            });
-        }
-
-        function activateConfig(id) {
-            fetch(API_BASE + '/experiments/' + id + '/activate', { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    alert(data.success ? '激活成功' : '失败');
-                    loadExperiments();
-                });
-        }
-
-        // ========== Recall ==========
-        function createQuestionSet() {
-            const name = document.getElementById('set-name').value;
-            const category = document.getElementById('set-category').value;
-            if (!name) { alert('请输入名称'); return; }
-
-            fetch(API_BASE + '/recall/sets', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ set_name: name, category })
-            }).then(r => r.json()).then(data => {
-                if (data.success) { alert('创建成功'); loadQuestionSets(); }
-            });
-        }
-
-        function loadQuestionSets() {
-            fetch(API_BASE + '/recall/sets').then(r => r.json()).then(data => {
-                const html = data.data.length ? data.data.map(s => `
-                    <div class="card">
-                        <h4>${s.set_name} <span class="tag">${s.category || ''}</span></h4>
-                        <p>问题数: ${s.question_count}</p>
-                        <button onclick="showAddQuestion('${s.set_id}')">添加问题</button>
-                    </div>
-                `).join('') : '<p>暂无问题集</p>';
-                document.getElementById('sets-list').innerHTML = '<div class="grid">' + html + '</div>';
-            });
-        }
-
-        function loadConfigOptions() {
-            fetch(API_BASE + '/experiments').then(r => r.json()).then(data => {
-                const opts = data.data.map(e => `<option value="${e.config_id}">${e.config_name}</option>`).join('');
-                document.getElementById('eval-config').innerHTML = '<option value="">选择配置</option>' + opts;
-            });
-            fetch(API_BASE + '/recall/sets').then(r => r.json()).then(data => {
-                const opts = data.data.map(s => `<option value="${s.set_id}">${s.set_name}</option>`).join('');
-                document.getElementById('eval-set').innerHTML = '<option value="">选择问题集</option>' + opts;
-            });
-        }
-
-        function runEvaluation() {
-            const configId = document.getElementById('eval-config').value;
-            const setId = document.getElementById('eval-set').value;
-            if (!configId || !setId) { alert('请选择配置和问题集'); return; }
-
-            fetch(API_BASE + '/recall/sets/' + setId + '/evaluate', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ config_id: configId })
-            }).then(r => r.json()).then(data => {
-                if (data.success) {
-                    const m = data.data.metrics;
-                    document.getElementById('eval-result').innerHTML = m ? `
-                        <div class="grid">
-                            <div class="card metric"><div class="value">${(m.avg_hit_rate*100).toFixed(1)}%</div><div class="label">Hit Rate</div></div>
-                            <div class="card metric"><div class="value">${(m.avg_mrr*100).toFixed(1)}%</div><div class="label">MRR</div></div>
-                            <div class="card metric"><div class="value">${m.eval_count}</div><div class="label">评估数</div></div>
+        <div class="console-layout">
+            <!-- Left: Settings -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>⚙️ 检索配置</span>
+                    <button class="btn btn-secondary btn-sm" onclick="resetParams()">重置</button>
+                </div>
+                <div class="panel-body">
+                    <!-- Retrieval Methods -->
+                    <div class="setting-group">
+                        <div class="setting-label">检索路数</div>
+                        <div class="toggle-row">
+                            <div class="toggle active" id="toggle-vector" onclick="toggleMethod('vector')"></div>
+                            <span>向量检索</span>
                         </div>
-                    ` : '<p>无评估数据</p>';
-                } else {
-                    document.getElementById('eval-result').innerHTML = '<div class="error">失败: ' + JSON.stringify(data.error) + '</div>';
-                }
-            });
+                        <div class="toggle-row">
+                            <div class="toggle active" id="toggle-bm25" onclick="toggleMethod('bm25')"></div>
+                            <span>BM25</span>
+                        </div>
+                        <div class="toggle-row">
+                            <div class="toggle active" id="toggle-fts" onclick="toggleMethod('fts')"></div>
+                            <span>全文搜索</span>
+                        </div>
+                    </div>
+
+                    <!-- Params -->
+                    <div class="setting-group">
+                        <div class="setting-label">相似度阈值</div>
+                        <input type="number" class="setting-input" id="threshold" value="0.5" min="0" max="1" step="0.1">
+                        <div class="setting-hint">低于此分数的结果将被过滤</div>
+                    </div>
+
+                    <div class="setting-group">
+                        <div class="setting-label">Top-K</div>
+                        <input type="number" class="setting-input" id="topk" value="10" min="1" max="50">
+                        <div class="setting-hint">返回前K个最相关结果</div>
+                    </div>
+
+                    <div class="setting-group">
+                        <div class="setting-label">Rerank</div>
+                        <div class="toggle" id="toggle-rerank" onclick="toggleRerank()"></div>
+                        <div class="setting-hint">启用重排序提升精度</div>
+                    </div>
+
+                    <!-- Model Params -->
+                    <div class="setting-group">
+                        <div class="setting-label">模型参数</div>
+                        <select class="setting-input" id="model">
+                            <option value="MiniMax-M2.7">MiniMax-M2.7</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-row">
+                        <div style="flex:1;">
+                            <div class="setting-label">Temperature</div>
+                            <input type="number" class="setting-input" id="temperature" value="0.3" min="0" max="1" step="0.1">
+                        </div>
+                        <div style="flex:1;">
+                            <div class="setting-label">Max Tokens</div>
+                            <input type="number" class="setting-input" id="maxtokens" value="1200" min="100" max="4000">
+                        </div>
+                    </div>
+
+                    <!-- System Prompt -->
+                    <div class="setting-group">
+                        <div class="setting-label">System Prompt</div>
+                        <textarea class="setting-input" id="system-prompt" style="min-height:120px;">你是一个专业的物联网技术支持助手，服务于云迹物联（Vehiclink）技术团队。
+
+【关键指令】
+1. 严格忠于知识库，所有回答必须基于提供的知识库文档
+2. 优先引用权威定义，必须注明出处
+3. 聚焦功能与协议，而非代码</textarea>
+                    </div>
+
+                    <!-- Versions -->
+                    <div class="setting-group">
+                        <div class="setting-label">配置快照</div>
+                        <div id="version-list">
+                            <div class="version-card active">
+                                <div class="version-name">v1.0 默认配置</div>
+                                <div class="version-meta">2025-01-01</div>
+                                <span class="version-status status-active">当前</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="openSaveVersionModal()">💾 保存快照</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center: Query -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>💬 Query 输入</span>
+                </div>
+                <div class="panel-body">
+                    <textarea class="query-input" id="query-input" placeholder="输入物联网技术问题，如：骑行记录的数据点有哪些？"></textarea>
+                    <div class="query-actions">
+                        <button class="btn btn-primary" onclick="runRetrieval()" style="flex:1;">🔍 检索</button>
+                        <button class="btn btn-success" onclick="runRAG()" style="flex:1;">🤖 RAG生成</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Results -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>📊 结果</span>
+                    <div class="result-tabs">
+                        <button class="result-tab active" onclick="showResultTab('chunks')">检索分块</button>
+                        <button class="result-tab" onclick="showResultTab('rag')">RAG回答</button>
+                        <button class="result-tab" onclick="showResultTab('cot')">CoT推理</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <!-- Chunks Tab -->
+                    <div id="result-chunks">
+                        <div class="metrics-row">
+                            <div class="metric-card">
+                                <div class="metric-value" id="metric-hit">-</div>
+                                <div class="metric-label">Hit@10</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="metric-mrr">-</div>
+                                <div class="metric-label">MRR</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value" id="metric-count">-</div>
+                                <div class="metric-label">返回数</div>
+                            </div>
+                        </div>
+                        <div id="chunks-list">
+                            <div style="color:#888;text-align:center;padding:40px;">
+                                输入Query后点击检索查看结果
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RAG Tab -->
+                    <div id="result-rag" style="display:none;">
+                        <div id="rag-answer">
+                            <div style="color:#888;text-align:center;padding:40px;">
+                                点击"RAG生成"获取回答
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CoT Tab -->
+                    <div id="result-cot" style="display:none;">
+                        <div id="cot-content">
+                            <div style="color:#888;text-align:center;padding:40px;">
+                                点击"RAG生成"查看推理过程
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Save Version Modal -->
+<div class="modal" id="save-version-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">保存配置快照</span>
+            <button class="modal-close" onclick="closeSaveVersionModal()">&times;</button>
+        </div>
+        <div style="margin-bottom:16px;">
+            <div class="setting-label">快照名称</div>
+            <input type="text" class="setting-input" id="version-name" placeholder="如：v1.1 优化版">
+        </div>
+        <div style="margin-bottom:16px;">
+            <div class="setting-label">说明（可选）</div>
+            <textarea class="setting-input" id="version-desc" style="min-height:60px;"></textarea>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:flex-end;">
+            <button class="btn btn-secondary" onclick="closeSaveVersionModal()">取消</button>
+            <button class="btn btn-primary" onclick="saveVersion()">保存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = '/api/labs';
+    const KB_ID = 'vehiclink-hardware';
+
+    let methods = { vector: true, bm25: true, fts: true };
+    let rerankEnabled = false;
+    let currentResultTab = 'chunks';
+
+    // ========== Toggle Methods ==========
+    function toggleMethod(method) {
+        methods[method] = !methods[method];
+        document.getElementById('toggle-' + method).classList.toggle('active', methods[method]);
+    }
+
+    function toggleRerank() {
+        rerankEnabled = !rerankEnabled;
+        document.getElementById('toggle-rerank').classList.toggle('active', rerankEnabled);
+    }
+
+    function resetParams() {
+        document.getElementById('threshold').value = '0.5';
+        document.getElementById('topk').value = '10';
+        document.getElementById('temperature').value = '0.3';
+        document.getElementById('maxtokens').value = '1200';
+        methods = { vector: true, bm25: true, fts: true };
+        ['vector', 'bm25', 'fts'].forEach(m => {
+            document.getElementById('toggle-' + m).classList.add('active');
+        });
+        rerankEnabled = false;
+        document.getElementById('toggle-rerank').classList.remove('active');
+    }
+
+    // ========== Retrieval ==========
+    async function runRetrieval() {
+        const query = document.getElementById('query-input').value.trim();
+        if (!query) {
+            alert('请输入Query');
+            return;
         }
 
-        // ========== Provenance ==========
-        function getChunkProvenance() {
-            const chunkId = document.getElementById('chunk-id').value;
-            if (!chunkId) { alert('请输入分块ID'); return; }
+        const topk = parseInt(document.getElementById('topk').value) || 10;
+        const threshold = parseFloat(document.getElementById('threshold').value) || 0;
 
-            fetch(API_BASE + '/provenance/chunk/' + encodeURIComponent(chunkId))
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('provenance-result').innerHTML = data.success ?
-                        `<div class="result-box"><pre>${JSON.stringify(data.data, null, 2)}</pre></div>` :
-                        `<div class="error">未找到: ${chunkId}</div>`;
-                });
-        }
+        document.getElementById('chunks-list').innerHTML = '<div class="loading">检索中...</div>';
 
-        function createChunkMapping() {
-            const assetId = document.getElementById('map-asset-id').value;
-            const chunkId = document.getElementById('map-chunk-id').value;
-            const page = document.getElementById('map-page').value;
-            const lineStart = document.getElementById('map-line-start').value;
-            const lineEnd = document.getElementById('map-line-end').value;
-
-            if (!assetId || !chunkId) { alert('请输入资产ID和分块ID'); return; }
-
-            fetch(API_BASE + '/provenance/asset/' + assetId + '/chunks', {
+        try {
+            const res = await fetch(API_BASE + '/assets/retrieve', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    chunk_id: chunkId,
-                    page_number: page ? +page : null,
-                    line_start: lineStart ? +lineStart : null,
-                    line_end: lineEnd ? +lineEnd : null
+                    query,
+                    top_k: topk,
+                    threshold,
+                    methods: Object.keys(methods).filter(m => methods[m]),
+                    rerank: rerankEnabled
                 })
-            }).then(r => r.json()).then(data => {
-                alert(data.success ? '创建成功' : '失败');
             });
+            const data = await res.json();
+
+            if (data.success && data.data.chunks.length) {
+                renderChunks(data.data.chunks);
+                document.getElementById('metric-count').textContent = data.data.chunks.length;
+                document.getElementById('metric-hit').textContent = '-';
+                document.getElementById('metric-mrr').textContent = '-';
+            } else {
+                document.getElementById('chunks-list').innerHTML = '<div style="color:#888;text-align:center;padding:40px;">无检索结果</div>';
+                document.getElementById('metric-count').textContent = '0';
+            }
+        } catch (e) {
+            document.getElementById('chunks-list').innerHTML = '<div style="color:#dc2626;padding:40px;">检索失败: ' + e.message + '</div>';
+        }
+    }
+
+    function renderChunks(chunks) {
+        const container = document.getElementById('chunks-list');
+        container.innerHTML = chunks.map((chunk, i) => {
+            const score = chunk.score || 0.5;
+            const scoreClass = score >= 0.7 ? 'score-high' : score >= 0.4 ? 'score-mid' : 'score-low';
+            return `
+                <div class="chunk-item">
+                    <div class="chunk-header">
+                        <span class="chunk-title">#${i + 1} ${chunk.title || 'Chunk ' + chunk.id}</span>
+                        <span class="chunk-score ${scoreClass}">${(score * 100).toFixed(0)}%</span>
+                    </div>
+                    <div class="chunk-content">${escapeHtml(chunk.content || '')}</div>
+                    <div class="chunk-source">来源: ${chunk.source || 'unknown'}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // ========== RAG ==========
+    async function runRAG() {
+        const question = document.getElementById('query-input').value.trim();
+        if (!question) {
+            alert('请输入问题');
+            return;
         }
 
-        // ========== Debug ==========
-        function sendDebugRequest() {
-            const method = document.getElementById('debug-method').value;
-            const url = document.getElementById('debug-url').value;
-            const body = document.getElementById('debug-body').value;
+        const model = document.getElementById('model').value;
+        const temperature = parseFloat(document.getElementById('temperature').value) || 0.3;
+        const maxTokens = parseInt(document.getElementById('maxtokens').value) || 1200;
+        const systemPrompt = document.getElementById('system-prompt').value;
 
-            const opts = { method, headers: {} };
-            if (body && method !== 'GET') {
-                opts.headers['Content-Type'] = 'application/json';
-                opts.body = body;
+        document.getElementById('rag-answer').innerHTML = '<div class="loading">生成中...</div>';
+        showResultTab('rag');
+
+        try {
+            const res = await fetch('/api/qa', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question,
+                    model,
+                    temperature,
+                    max_tokens: maxTokens,
+                    system_prompt: systemPrompt
+                })
+            });
+            const data = await res.json();
+
+            if (data.answer) {
+                const renderedAnswer = typeof marked !== 'undefined'
+                    ? marked.parse(data.answer)
+                    : data.answer;
+                document.getElementById('rag-answer').innerHTML = `
+                    <div class="rag-answer">
+                        ${renderedAnswer}
+                    </div>
+                `;
+
+                // Render CoT history if available
+                if (data.history && data.history.length > 0) {
+                    renderCoTHistory(data.history);
+                }
+            } else {
+                document.getElementById('rag-answer').innerHTML = '<div style="color:#dc2626;padding:40px;">生成失败: ' + (data.error || '未知错误') + '</div>';
+            }
+        } catch (e) {
+            document.getElementById('rag-answer').innerHTML = '<div style="color:#dc2626;padding:40px;">请求失败: ' + e.message + '</div>';
+        }
+    }
+
+    // ========== CoT History Rendering ==========
+    function renderCoTHistory(history) {
+        const container = document.getElementById('cot-content');
+        if (!container) return;
+
+        let html = '<div style="padding:12px;">';
+        history.forEach((step, idx) => {
+            html += `<div class="cot-step">
+                <div class="cot-step-header">
+                    <span class="cot-step-num">第${idx+1}轮</span>
+                </div>`;
+
+            if (step.thought) {
+                const thoughtContent = typeof step.thought === 'string' ? step.thought : (step.thought.content || '');
+                if (thoughtContent) {
+                    html += `<div class="cot-thought"><strong>Thought:</strong> ${escapeHtml(thoughtContent.substring(0, 300))}</div>`;
+                }
             }
 
-            fetch(url.startsWith('/') ? url : '/' + url, opts)
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('debug-result').innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            if (step.query) {
+                html += `<div class="cot-action"><strong>Action:</strong> search("${escapeHtml(step.query)}")</div>`;
+            }
+
+            if (step.tool) {
+                const args = JSON.stringify(step.arguments || {});
+                html += `<div class="cot-action"><strong>Action:</strong> ${escapeHtml(step.tool)}(${escapeHtml(args)})</div>`;
+            }
+
+            if (step.results !== undefined) {
+                const count = Array.isArray(step.results) ? step.results.length : 'N/A';
+                html += `<div class="cot-observation"><strong>Observation:</strong> 检索到 ${count} 条结果</div>`;
+            }
+
+            if (step.result) {
+                const success = step.result.success;
+                if (success) {
+                    const data = step.result.data;
+                    if (data && typeof data === 'object') {
+                        if (data.count !== undefined) {
+                            html += `<div class="cot-result"><strong>Result:</strong> ${data.count} 条数据</div>`;
+                        } else if (data.intent) {
+                            html += `<div class="cot-result"><strong>Intent:</strong> ${escapeHtml(data.intent)}</div>`;
+                        }
+                    }
+                } else {
+                    const error = step.result.error || 'Unknown error';
+                    html += `<div class="cot-result" style="background:#fee2e2;color:#dc2626;"><strong>Error:</strong> ${escapeHtml(String(error).substring(0, 100))}</div>`;
+                }
+            }
+
+            if (step.intent_confirm && step.intent_confirm.success) {
+                const ic = step.intent_confirm;
+                html += `<div class="cot-intent"><strong>意图确认:</strong> ${escapeHtml(ic.intent || '')}`;
+                if (ic.keywords) {
+                    html += `<br>建议检索词: ${escapeHtml(ic.keywords.join(', '))}`;
+                }
+                html += `</div>`;
+            }
+
+            html += '</div>';
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // ========== Tabs ==========
+    function showResultTab(tab) {
+        currentResultTab = tab;
+        document.querySelectorAll('.result-tab').forEach(t => t.classList.remove('active'));
+        event.target?.classList.add('active');
+        document.getElementById('result-chunks').style.display = tab === 'chunks' ? 'block' : 'none';
+        document.getElementById('result-rag').style.display = tab === 'rag' ? 'block' : 'none';
+        document.getElementById('result-cot').style.display = tab === 'cot' ? 'block' : 'none';
+    }
+
+    // ========== Version Snapshot ==========
+    function openSaveVersionModal() {
+        document.getElementById('save-version-modal').classList.add('visible');
+        document.getElementById('version-name').value = 'v' + new Date().toISOString().substring(0, 10);
+    }
+
+    function closeSaveVersionModal() {
+        document.getElementById('save-version-modal').classList.remove('visible');
+    }
+
+    async function saveVersion() {
+        const name = document.getElementById('version-name').value.trim();
+        if (!name) {
+            alert('请输入快照名称');
+            return;
+        }
+
+        const config = {
+            chunk_size: parseInt(document.getElementById('topk').value) || 10,
+            overlap_ratio: 0.15,
+            threshold: parseFloat(document.getElementById('threshold').value) || 0.5,
+            temperature: parseFloat(document.getElementById('temperature').value) || 0.3,
+            system_prompt: document.getElementById('system-prompt').value,
+            methods: methods,
+            rerank: rerankEnabled
+        };
+
+        try {
+            const res = await fetch(API_BASE + '/experiments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    config_name: name,
+                    description: document.getElementById('version-desc').value,
+                    ...config
                 })
-                .catch(e => document.getElementById('debug-result').innerHTML = '<pre>Error: ' + e + '</pre>');
-        }
+            });
+            const data = await res.json();
 
-        // ========== Utils ==========
-        function showResult(id, msg, type) {
-            document.getElementById(id).innerHTML = `<div class="${type}">${msg}</div>`;
+            if (data.success) {
+                alert('快照保存成功');
+                closeSaveVersionModal();
+            } else {
+                alert('保存失败: ' + (data.error?.message || '未知错误'));
+            }
+        } catch (e) {
+            alert('保存失败: ' + e.message);
         }
+    }
 
-        // Load initial data
-        loadAssets();
-    </script>
+    // ========== Navigation ==========
+    function goHome() { window.location.href = '/labs'; }
+    function goToDocs() { window.location.href = '/labs/' + KB_ID; }
+    function goToPipeline() { window.location.href = '/labs/' + KB_ID + '#pipeline'; }
+
+    // ========== Utils ==========
+    function escapeHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+</script>
 </body>
 </html>

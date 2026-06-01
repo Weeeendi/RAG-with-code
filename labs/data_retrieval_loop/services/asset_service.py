@@ -121,6 +121,9 @@ class AssetService:
             with open(file_path, 'wb') as f:
                 f.write(content if isinstance(content, bytes) else content.encode())
 
+            # 同步复制到knowledge_base/raw目录
+            self._sync_to_knowledge_base(original_filename, content, ext)
+
             # 创建资产记录
             now = datetime.now().isoformat()
             tags_json = json.dumps(tags or [])
@@ -406,6 +409,75 @@ class AssetService:
             "retry_count": row['retry_count']
         }
 
+    def list_knowledge_bases(self) -> List[Dict[str, Any]]:
+        """获取知识库列表"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT category, COUNT(*) as count, MAX(created_at) as last_updated
+            FROM asset_registry WHERE is_active = 1
+            GROUP BY category
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [{"category": r['category'], "count": r['count'], "last_updated": r['last_updated']} for r in rows]
+
+    def list_documents(self, category: str = None, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """获取文档列表"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+
+        query = "SELECT asset_id, file_name, category, status, file_size, created_at FROM asset_registry WHERE is_active = 1"
+        params = []
+        if category and category in ('c_code', 'protocol_docs', 'logs'):
+            query += " AND category = ?"
+            params.append(category)
+
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        conn.close()
+
+        result = []
+        for r in rows:
+            d = dict(r)
+            d['name'] = d.pop('file_name')
+            d['type'] = os.path.splitext(d['file_name'])[1] if d.get('file_name') else ''
+            d['size'] = d.pop('file_size')
+            d['path'] = d.get('file_path', '')
+            result.append(d)
+
+        return result
+
+    def get_stats(self) -> Dict[str, Any]:
+        """获取统计信息"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT COUNT(*) as total FROM asset_registry WHERE is_active = 1")
+        total = cursor.fetchone()['total']
+
+        cursor.execute("SELECT COUNT(*) as total FROM asset_registry WHERE is_active = 1 AND status = 'indexed'")
+        indexed = cursor.fetchone()['total']
+
+        cursor.execute("SELECT category, COUNT(*) as count FROM asset_registry WHERE is_active = 1 GROUP BY category")
+        by_category = {r['category']: r['count'] for r in cursor.fetchall()}
+
+        conn.close()
+
+        return {
+            "kb_count": len(by_category),
+            "doc_count": total,
+            "chunk_count": indexed,
+            "total_assets": total,
+            "indexed_assets": indexed,
+            "by_category": by_category
+        }
+
     def _get_category(self, ext: str) -> str:
         """根据扩展名判断资产类别"""
         if ext in ('.c', '.h'):
@@ -414,6 +486,25 @@ class AssetService:
             return 'log'
         else:
             return 'protocol'
+
+    def _sync_to_knowledge_base(self, file_name: str, content, ext: str):
+        """同步文件到knowledge_base/raw目录"""
+        kb_root = "knowledge_base/raw"
+        category = self._get_category(ext)
+        dir_map = {
+            'protocol': 'protocol_docs',
+            'c_code': 'c_code',
+            'log': 'logs'
+        }
+        target_dir = os.path.join(kb_root, dir_map.get(category, 'protocol_docs'))
+        os.makedirs(target_dir, exist_ok=True)
+        target_path = os.path.join(target_dir, file_name)
+        try:
+            with open(target_path, 'wb') as f:
+                f.write(content if isinstance(content, bytes) else content.encode())
+            print(f"[Sync] Copied {file_name} to {target_path}")
+        except Exception as e:
+            print(f"[Sync] Failed to copy {file_name}: {e}")
 
     def _row_to_asset(self, asset_id: str, cursor, created_at: str, updated_at: str, row=None) -> Asset:
         """将数据库行转换为Asset对象"""

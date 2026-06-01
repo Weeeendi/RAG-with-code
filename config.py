@@ -1,17 +1,16 @@
 import os
 
-MINIMAX_GROUP_ID = os.getenv("MINIMAX_GROUP_ID", "2043975034527027942")
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "sk-cp-etkigx38MLrNIxi4D8FsUBWaq2slx7yxoRNdo4XopoPriY1dlxuVXvug-9CmTY17sk7S3WwV5HLV2kppVTKIG42XhZggQ8e3GTkpNL-2ZPPapsTdOv1hxSE")
+MINIMAX_GROUP_ID = ""
+MINIMAX_API_KEY = "sk-cp-9YIBvviKc425wlAdd1te5ECHQoQQVfhvXldMZ4uleGcmiYcGWe5TE6ac0aXEq1kJCchp-pgUwS60_gMeg0j6nPE4WPm11wCveOFPi5r-nXsv-tV7AXxlh2c"
 MINIMAX_BASE_URL = "https://api.minimax.chat/v1"
 
-PADDLEOCR_TOKEN = os.getenv("PADDLEOCR_TOKEN", "29d2c8c889390dd177ef650c0a843e2b504a4266")
+PADDLEOCR_TOKEN = "29d2c8c889390dd177ef650c0a843e2b504a4266"
 PADDLEOCR_API_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
 PADDLEOCR_MODEL = "PaddleOCR-VL-1.5"
 
 DB_PATH = "data/metadata.db"
 VECTOR_DIR = "knowledge_base/vectorized"
 
-# Labs (Data-to-Retrieval Loop) configuration
 LABS_DB_PATH = "data/labs.db"
 LABS_UPLOAD_DIR = "labs/uploads"
 
@@ -21,8 +20,23 @@ SOURCE_DIRS = {
     "logs": "knowledge_base/raw/logs"
 }
 
-EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
-VECTOR_DIM = 384
+LLM_PROVIDER = "minimax"
+LLM_MODEL = "MiniMax-M2.7"
+LLM_MAX_TOKENS = 800
+LLM_TEMPERATURE = 0.3
+
+EMBEDDING_PROVIDER = "siliconflow"
+SILICONFLOW_API_KEY = "sk-yuafbaisfogshowaunwnckbvlqgqrypadpgbnupimxvkqter"
+SILICONFLOW_EMBEDDING_MODEL = "BAAI/bge-m3"
+SILICONFLOW_VECTOR_DIM = 1024
+SILICONFLOW_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
+
+RERANK_PROVIDER = "siliconflow"
+CROSSENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+OPENAI_API_KEY = ""
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+OPENAI_MODEL = "gpt-4o-mini"
 
 DEFAULT_TOP_K = 5
 MAX_CONTEXT_CHARS = 4000
@@ -47,3 +61,9 @@ if HTTPS_PROXY and HTTPS_PROXY.lower() not in ("", "none", "off"):
     if PROXIES is None:
         PROXIES = {}
     PROXIES["https"] = HTTPS_PROXY
+
+GRAPH_RAG_ENABLED = True
+GRAPH_EXTRACTOR = "regex"
+GRAPH_RETRIEVAL_WEIGHT = 0.4
+GRAPH_DIR = "knowledge_base/parsed/graph"
+GRAPH_NODE_INDEX = "knowledge_base/vectorized/graph_nodes"

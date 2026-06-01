@@ -530,7 +530,7 @@ class MetadataDB:
             print(f"Error deleting item: {e}")
             return False
 
-    def search_items_by_content(self, keyword: str, limit: int = 10, year: int = None, version: str = None, parent_id: str = None) -> List[KnowledgeItem]:
+    def search_items_by_content(self, keyword: str, limit: int = 10, year: int = None, version: str = None, parent_id: str = None, category: str = None) -> List[KnowledgeItem]:
         items = []
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -540,6 +540,9 @@ class MetadataDB:
             '''
             params = [f'%{keyword}%', f'%{keyword}%']
 
+            if category is not None:
+                query += ' AND category = ?'
+                params.append(category)
             if year is not None:
                 query += ' AND year = ?'
                 params.append(year)
@@ -1004,16 +1007,26 @@ class LazyVectorStore:
         self._bm25_cache: Dict[str, tuple] = {}
         self._minimax_store = None
         self._use_minimax_embedding = True
+        self._silicon_store = None
+        self._use_silicon_embedding = False
 
-    def _get_minimax_store(self):
-        if self._minimax_store is None:
+    def _get_silicon_store(self):
+        if self._silicon_store is None:
             try:
-                from models.minimax_embedding import MiniMaxEmbeddingStore, MiniMaxEmbedding
-                self._minimax_store = MiniMaxEmbeddingStore(MiniMaxEmbedding())
+                from models.provider import create_embedding
+                from config import EMBEDDING_PROVIDER
+                if EMBEDDING_PROVIDER == "siliconflow":
+                    self._silicon_store = create_embedding()
+                    self._use_silicon_embedding = True
+                    print(f"[LazyVectorStore] SiliconFlow embedding enabled")
+                else:
+                    self._silicon_store = None
+                    self._use_silicon_embedding = False
             except ImportError:
-                print("[LazyVectorStore] MiniMax embedding not available")
-                self._minimax_store = None
-        return self._minimax_store
+                print("[LazyVectorStore] SiliconFlow embedding not available")
+                self._silicon_store = None
+                self._use_silicon_embedding = False
+        return self._silicon_store
 
     def _get_global_tfidf(self):
         if self._global_tfidf is None:
@@ -1309,6 +1322,8 @@ class LazyVectorStore:
         tfidf_combined = {}
         faiss_combined = {}
 
+        use_silicon = self._get_silicon_store() is not None
+
         for file_path in relevant_files:
             items = shared_items_cache.get(file_path)
             if not items:
@@ -1362,7 +1377,30 @@ class LazyVectorStore:
                     doc_id = item_map[actual_idx]['id']
                     tfidf_combined[doc_id] = tfidf_combined.get(doc_id, 0.0) + score
 
-            if query_vec is not None and len(vectors) > 0 and query_vec_np.shape[1] > 0:
+            if use_silicon and len(vectors) > 0:
+                try:
+                    contents = [item.content for item in filtered_items]
+                    silicon_embeddings = self._silicon_store.encode(contents)
+                    if len(silicon_embeddings) == len(vectors):
+                        mat = np.array(silicon_embeddings, dtype=np.float32)
+                        faiss.normalize_L2(mat)
+                        dim = mat.shape[1]
+
+                        query_emb = self._silicon_store.encode([expander.expand(query)[0]])
+                        query_emb_np = np.array(query_emb, dtype=np.float32)
+                        faiss.normalize_L2(query_emb_np)
+
+                        index = faiss.IndexFlatIP(dim)
+                        index.add(mat)
+                        D, I = index.search(query_emb_np, min(50, len(vectors)))
+                        for i, idx in enumerate(I[0]):
+                            if idx >= 0 and idx < len(item_ids):
+                                doc_id = item_ids[idx]
+                                if doc_id in doc_id_to_info:
+                                    faiss_combined[doc_id] = max(faiss_combined.get(doc_id, 0.0), float(D[0][i]))
+                except Exception as e:
+                    print(f"[LazyVectorStore] SiliconFlow search error: {e}")
+            elif query_vec is not None and len(vectors) > 0 and query_vec_np.shape[1] > 0:
                 try:
                     mat = np.array(vectors, dtype=np.float32)
                     faiss.normalize_L2(mat)
@@ -1452,7 +1490,10 @@ class LazyVectorStore:
 
         if len(final_results) > 3:
             try:
-                final_results = self._rerank_with_crossencoder(query, final_results[:10])
+                from models.provider import create_reranker
+                from config import RERANK_PROVIDER
+                reranker = create_reranker(RERANK_PROVIDER)
+                final_results = reranker.rerank(query, final_results[:10], top_k=top_k)
             except Exception as e:
                 pass
 
@@ -1727,6 +1768,72 @@ class KnowledgeBase:
                 final_items.append(item)
 
         return final_items[:top_k]
+
+    def add_graph_nodes(self, nodes: List[Dict], edges: List[Dict], batch_size: int = 500) -> int:
+        """添加图节点和边到知识库（分批处理）"""
+        total_added = 0
+        for i in range(0, len(nodes), batch_size):
+            batch = nodes[i:i + batch_size]
+            items = []
+            for node in batch:
+                node_id = node.get('id', f"node_{hash(node.get('name', ''))}")
+                item = KnowledgeItem(
+                    id=node_id,
+                    type=f"graph_{node.get('type', 'node')}",
+                    category='graph',
+                    title=node.get('name', node_id),
+                    content=node.get('code_snippet', ''),
+                    source_file=node.get('file', ''),
+                    line_number=node.get('line_start', 0),
+                    created_at=datetime.now().isoformat(),
+                    metadata={
+                        'node_type': node.get('type', 'unknown'),
+                        'edges': self._get_edges_for_node(node_id, edges),
+                        'keywords': self._extract_keywords(node)
+                    }
+                )
+                items.append(item)
+
+            if items:
+                self.metadata_db.insert_items_batch(items)
+                total_added += len(items)
+                print(f"[GraphIndex] Batch {i//batch_size + 1}: added {len(items)} nodes")
+
+        return total_added
+
+    def _get_edges_for_node(self, node_id: str, edges: List[Dict]) -> List[Dict]:
+        node_edges = []
+        for edge in edges:
+            if edge.get('from_node') == node_id or edge.get('to_node') == node_id:
+                node_edges.append({
+                    'type': edge.get('edge_type', 'related'),
+                    'target': edge.get('to_node') if edge.get('from_node') == node_id else edge.get('from_node'),
+                    'direction': 'out' if edge.get('from_node') == node_id else 'in'
+                })
+        return node_edges
+
+    def _extract_keywords(self, node: Dict) -> str:
+        keywords = []
+        if node.get('type') == 'function':
+            keywords.append('function')
+            if node.get('metadata', {}).get('params'):
+                keywords.append('has_params')
+        if node.get('type') == 'variable':
+            keywords.append('variable')
+        keywords.append(node.get('name', ''))
+        return ','.join(keywords)
+
+    def search_graph(self, query: str, top_k: int = 5) -> List[KnowledgeItem]:
+        """搜索图节点"""
+        return self.metadata_db.search_items_by_content(query, limit=top_k, category='graph')
+
+    def get_callers(self, func_name: str) -> List[KnowledgeItem]:
+        """获取调用指定函数的所有函数节点"""
+        return self.metadata_db.search_items_by_content(func_name, limit=50, category='graph')
+
+    def get_callees(self, func_name: str) -> List[KnowledgeItem]:
+        """获取指定函数调用的所有函数节点"""
+        return self.metadata_db.search_items_by_content(func_name, limit=50, category='graph')
 
 
 class QueryIntentClassifier:

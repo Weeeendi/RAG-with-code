@@ -307,6 +307,8 @@ class EnhancedRAGEngine:
     def __init__(self, knowledge_base):
         self.kb = knowledge_base
         self.entity_graph = ENTITY_GRAPH
+        from config import GRAPH_RAG_ENABLED
+        self.graph_rag_enabled = GRAPH_RAG_ENABLED and True
 
     def detect_entities(self, query: str) -> Set[str]:
         return detect_entities(query)
@@ -364,6 +366,14 @@ class EnhancedRAGEngine:
 内容:
 {content}
 """
+            elif doc_category == 'graph':
+                graph_edges = doc.get('graph_edges', '')
+                doc_text = f"""
+【函数关系】{title}
+{graph_edges}
+内容:
+{content}
+"""
             else:
                 doc_text = f"""
 【{doc_type}】{title}
@@ -384,6 +394,75 @@ class EnhancedRAGEngine:
             if entity in self.entity_graph:
                 related[entity] = self.entity_graph[entity]['related_entities']
         return dict(related)
+
+    def retrieve_with_graph(self, query: str, top_k: int = 5) -> List[Dict]:
+        """图关系增强检索"""
+        graph_results = self.kb.search_graph(query, top_k=top_k)
+
+        results = []
+        for item in graph_results:
+            edges_info = item.metadata.get('edges', []) if item.metadata else []
+            edges_text = ", ".join([f"{e.get('type')}:{e.get('target')}" for e in edges_info[:5]])
+
+            results.append({
+                'id': item.id,
+                'type': item.type,
+                'category': 'graph',
+                'title': item.title,
+                'content': f"[图节点] {item.content[:300]}",
+                'source_file': item.source_file,
+                'line_number': item.line_number,
+                'graph_edges': edges_text
+            })
+        return results
+
+    def _merge_graph_results(self, normal_results: List[Dict], graph_results: List[Dict], top_k: int) -> List[Dict]:
+        """将图检索结果与普通检索结果融合"""
+        seen_ids = set(r['id'] for r in normal_results)
+        merged = list(normal_results)
+
+        for gr in graph_results:
+            if gr['id'] not in seen_ids:
+                merged.append(gr)
+                seen_ids.add(gr['id'])
+
+        merged.sort(key=lambda x: (
+            0 if x.get('category') == 'graph' else 1,
+            len(x.get('query_match', ''))
+        ), reverse=True)
+
+        return merged[:top_k]
+
+    def get_function_call_chain(self, func_name: str) -> Dict:
+        """获取函数调用链"""
+        callers = self.kb.get_callers(func_name)
+        callees = self.kb.get_callees(func_name)
+
+        return {
+            'function': func_name,
+            'callers': [c.title for c in callers],
+            'callees': [c.title for c in callees],
+            'caller_count': len(callers),
+            'callee_count': len(callees)
+        }
+
+    def extract_code_relations(self, query: str) -> str:
+        """从查询中提取代码关系信息"""
+        import re
+
+        func_pattern = r'\b(\w+)\s*\('
+        funcs = re.findall(func_pattern, query)
+
+        if not funcs:
+            return ""
+
+        relations = []
+        for func in funcs[:3]:
+            call_chain = self.get_function_call_chain(func)
+            if call_chain['caller_count'] > 0 or call_chain['callee_count'] > 0:
+                relations.append(f"函数 {func}: 调用了 {call_chain['callee_count']} 个函数, 被 {call_chain['caller_count']} 个函数调用")
+
+        return "\n".join(relations) if relations else ""
 
 
 class EnhancedAnswerGenerator:
@@ -464,6 +543,13 @@ class EnhancedFAQAgent:
         t1 = time.time()
 
         retrieved, reasoning_chain = self.rag.retrieve_with_expansion(question, top_k=top_k)
+
+        if self.rag.graph_rag_enabled:
+            graph_results = self.rag.retrieve_with_graph(question, top_k=top_k)
+            for gr in graph_results:
+                gr['query_match'] = 'graph'
+            retrieved = self.rag._merge_graph_results(retrieved, graph_results, top_k)
+
         t2 = time.time()
 
         context = self.rag.build_context(retrieved)
@@ -778,7 +864,8 @@ class ReActRAGEngine:
 
     def confirm_intent(self, question: str, context: str) -> Dict[str, Any]:
         """确认用户的真正意图，返回澄清问题和建议的检索词"""
-        from config import MINIMAX_API_KEY, PROXIES
+        from models.provider import create_llm
+        from config import LLM_PROVIDER
         import json
 
         user_prompt = f"""## 用户原始问题
@@ -800,36 +887,17 @@ class ReActRAGEngine:
         messages = [{"role": "user", "content": user_prompt}]
 
         try:
-            headers = {
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
-                "Content-Type": "application/json"
+            llm = create_llm(LLM_PROVIDER)
+            content = llm.chat(messages, max_tokens=300, temperature=0.3)
+            intent_match = re.search(r'意图：(.+)', content)
+            keywords_match = re.search(r'建议检索词：(.+)', content)
+            clarify_match = re.search(r'澄清问题：(.+)', content)
+            return {
+                "success": True,
+                "intent": intent_match.group(1).strip() if intent_match else "",
+                "keywords": [k.strip() for k in keywords_match.group(1).split(',')] if keywords_match else [],
+                "clarify": clarify_match.group(1).strip() if clarify_match else ""
             }
-            payload = {
-                "model": "MiniMax-M2.7",
-                "max_tokens": 300,
-                "temperature": 0.3,
-                "messages": messages
-            }
-            session = get_api_session(PROXIES)
-            response = session.post(
-                "https://api.minimax.chat/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=(10, 30)
-            )
-            if response.status_code == 200:
-                result = response.json()
-                if result.get("choices"):
-                    content = result["choices"][0]["message"]["content"]
-                    intent_match = re.search(r'意图：(.+)', content)
-                    keywords_match = re.search(r'建议检索词：(.+)', content)
-                    clarify_match = re.search(r'澄清问题：(.+)', content)
-                    return {
-                        "success": True,
-                        "intent": intent_match.group(1).strip() if intent_match else "",
-                        "keywords": [k.strip() for k in keywords_match.group(1).split(',')] if keywords_match else [],
-                        "clarify": clarify_match.group(1).strip() if clarify_match else ""
-                    }
         except Exception as e:
             return {"success": False, "error": str(e)}
         return {"success": False, "error": "确认意图失败"}
@@ -837,7 +905,8 @@ class ReActRAGEngine:
     def think(self, state: Dict) -> Dict[str, Any]:
         """让LLM决定下一步行动"""
         import time
-        from config import MINIMAX_API_KEY, PROXIES
+        from models.provider import create_llm
+        from config import LLM_PROVIDER
         import json
 
         tools_json = json.dumps(TOOL_DEFINITIONS, ensure_ascii=False, indent=2)
@@ -873,38 +942,21 @@ DP工具已调用: {'是' if dp_tools_used else '否'}
         ]
 
         try:
-            headers = {
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": "MiniMax-M2.7",
-                "max_tokens": 800,
-                "temperature": 0.3,
-                "messages": messages,
-                "tools": TOOL_DEFINITIONS
-            }
-            session = get_api_session(PROXIES)
-            response = session.post(
-                "https://api.minimax.chat/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=(10, 60)
-            )
-            if response.status_code == 200:
-                result = response.json()
-                if result.get("choices"):
-                    message = result["choices"][0]["message"]
-                    if "tool_calls" in message:
-                        return {
-                            "type": "tool_call",
-                            "content": message.get("content", ""),
-                            "tool_calls": message["tool_calls"]
-                        }
+            llm = create_llm(LLM_PROVIDER)
+            content = llm.chat(messages, max_tokens=800, temperature=0.3)
+            if content:
+                import re
+                tool_calls_match = re.search(r'<tool_calls>(.*?)</tool_calls>', content, re.DOTALL)
+                if tool_calls_match:
                     return {
-                        "type": "text",
-                        "content": message.get("content", "")
+                        "type": "tool_call",
+                        "content": content,
+                        "tool_calls": [{"name": "search_knowledge", "arguments": {}}]
                     }
+                return {
+                    "type": "text",
+                    "content": content
+                }
         except Exception as e:
             return {"type": "error", "content": f"思考出错: {e}", "tool_calls": []}
 
@@ -943,6 +995,20 @@ DP工具已调用: {'是' if dp_tools_used else '否'}
 
         content = thought_output.get('content', '')
 
+        # Try to match search_knowledge(...) with various argument patterns
+        # search_knowledge({"keyword": "..."}) or search_knowledge({"query": "..."}) or search_knowledge("...")
+        # First try the object notation with keyword/query
+        sk_match = re.search(r'search_knowledge\s*\(\s*\{.*?["\']keyword["\']\s*:\s*["\']([^"\']+)["\']', content, re.DOTALL)
+        if not sk_match:
+            sk_match = re.search(r'search_knowledge\s*\(\s*\{.*?["\']query["\']\s*:\s*["\']([^"\']+)["\']', content, re.DOTALL)
+        if not sk_match:
+            sk_match = re.search(r'search_knowledge\s*\(\s*["\']([^"\']+)["\']\s*\)', content, re.IGNORECASE)
+        if sk_match:
+            query = sk_match.group(1)
+            if query:
+                return ('search', query)
+
+        # Fallback: match simple search("...")
         search_match = re.search(r'search\s*\(\s*["\']([^"\']+)["\']\s*\)', content, re.IGNORECASE)
         if search_match:
             query = search_match.group(1)
@@ -1075,7 +1141,8 @@ DP工具已调用: {'是' if dp_tools_used else '否'}
 
     def synthesize_answer(self, state: Dict) -> str:
         """综合历史信息生成最终回答，使用结构化模板"""
-        from config import MINIMAX_API_KEY, PROXIES
+        from models.provider import create_llm
+        from config import LLM_PROVIDER
 
         context = state['context']
         if not context:
@@ -1150,37 +1217,19 @@ DP工具已调用: {'是' if dp_tools_used else '否'}
         ]
 
         try:
-            headers = {
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": "MiniMax-M2.7",
-                "max_tokens": 1200,
-                "temperature": 0.3,
-                "messages": messages
-            }
-            session = get_api_session(PROXIES)
+            llm = create_llm(LLM_PROVIDER)
             max_retries = 3
             for attempt in range(max_retries):
-                response = session.post(
-                    "https://api.minimax.chat/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=(10, 60)
-                )
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("choices"):
-                        return result["choices"][0]["message"]["content"]
-                    print(f"[DEBUG] synthesize_answer: no choices in result: {result}")
-                elif response.status_code == 529:
+                try:
+                    content = llm.chat(messages, max_tokens=1200, temperature=0.3)
+                    if content:
+                        return content
+                except Exception as e:
                     if attempt < max_retries - 1:
                         import time
                         time.sleep(2 ** attempt)
                         continue
-                print(f"[DEBUG] synthesize_answer failed: status={response.status_code} text={response.text[:200]}")
-                break
+                    return f"生成回答时出错: {e}"
         except Exception as e:
             return f"生成回答时出错: {e}"
 
