@@ -21,6 +21,8 @@ class GraphNode:
     file: str = ""
     line_start: int = 0
     line_end: int = 0
+    subsystem: str = ""  # 代码所属子系统标签，如: gil/gps, cil/ble, can/vehicle
+    context: str = ""  # 代码上下文描述，如: GPS定位状态, BLE蓝牙, 整车控制器
     metadata: Dict = field(default_factory=dict)
 
 
@@ -35,8 +37,10 @@ class GraphEdge:
 class FunctionExtractor(c_ast.NodeVisitor):
     """遍历AST提取函数定义"""
 
-    def __init__(self, file_name: str):
+    def __init__(self, file_name: str, subsystem: str = "", context: str = ""):
         self.file_name = file_name
+        self.subsystem = subsystem
+        self.context = context
         self.nodes: List[GraphNode] = []
         self.func_names: Set[str] = set()
 
@@ -67,6 +71,8 @@ class FunctionExtractor(c_ast.NodeVisitor):
             file=self.file_name,
             line_start=line_start,
             line_end=line_end,
+            subsystem=self.subsystem,
+            context=self.context,
             metadata={
                 "params": self._get_params(decl),
                 "decl": generator.visit(decl)
@@ -90,10 +96,12 @@ class FunctionExtractor(c_ast.NodeVisitor):
 
 
 class VariableExtractor(c_ast.NodeVisitor):
-    """遍历AST提取全局变量"""
+    """遍历AST提取全局变量、结构体、枚举"""
 
-    def __init__(self, file_name: str, func_names: Set[str] = None):
+    def __init__(self, file_name: str, func_names: Set[str] = None, subsystem: str = "", context: str = ""):
         self.file_name = file_name
+        self.subsystem = subsystem
+        self.context = context
         self.func_names = func_names or set()
         self.nodes: List[GraphNode] = []
         self.in_function: bool = False
@@ -118,6 +126,8 @@ class VariableExtractor(c_ast.NodeVisitor):
                 name=node.name,
                 code_snippet=node.name,
                 file=self.file_name,
+                subsystem=self.subsystem,
+                context=self.context,
                 metadata={"decl": node.name}
             )
             self.nodes.append(graph_node)
@@ -133,6 +143,8 @@ class VariableExtractor(c_ast.NodeVisitor):
                     name=node.name,
                     code_snippet=node.name,
                     file=self.file_name,
+                    subsystem=self.subsystem,
+                    context=self.context,
                     metadata={"decl": "global"}
                 )
                 self.nodes.append(graph_node)
@@ -146,6 +158,8 @@ class VariableExtractor(c_ast.NodeVisitor):
                 name=node.name,
                 code_snippet=node.name,
                 file=self.file_name,
+                subsystem=self.subsystem,
+                context=self.context,
                 metadata={"fields": self._get_struct_fields(node)}
             )
             self.nodes.append(graph_node)
@@ -159,6 +173,8 @@ class VariableExtractor(c_ast.NodeVisitor):
                 name=node.name,
                 code_snippet=node.name,
                 file=self.file_name,
+                subsystem=self.subsystem,
+                context=self.context,
                 metadata={"fields": self._get_struct_fields(node)}
             )
             self.nodes.append(graph_node)
@@ -172,6 +188,8 @@ class VariableExtractor(c_ast.NodeVisitor):
                 name=node.name,
                 code_snippet=node.name,
                 file=self.file_name,
+                subsystem=self.subsystem,
+                context=self.context,
                 metadata={"values": self._get_enum_values(node)}
             )
             self.nodes.append(graph_node)
@@ -259,6 +277,7 @@ class CodeGraphExtractor:
             content = f.read()
 
         file_name = os.path.basename(file_path)
+        subsystem, context = self._detect_subsystem(file_path)
 
         try:
             # 解析C代码为AST
@@ -273,12 +292,12 @@ class CodeGraphExtractor:
                 return {"nodes": [], "edges": [], "file": file_name, "full_path": file_path, "total_lines": len(content.split('\n'))}
 
         # 提取节点
-        func_extractor = FunctionExtractor(file_name)
+        func_extractor = FunctionExtractor(file_name, subsystem, context)
         func_extractor.visit(ast)
         func_nodes = func_extractor.nodes
         func_names = func_extractor.func_names
 
-        var_extractor = VariableExtractor(file_name, func_names)
+        var_extractor = VariableExtractor(file_name, func_names, subsystem, context)
         var_extractor.visit(ast)
         var_nodes = var_extractor.nodes
 
@@ -297,8 +316,30 @@ class CodeGraphExtractor:
             "edges": [asdict(e) for e in call_edges],
             "file": file_name,
             "full_path": file_path,
-            "total_lines": len(content.split('\n'))
+            "total_lines": len(content.split('\n')),
+            "subsystem": subsystem,
+            "context": context
         }
+
+    def _detect_subsystem(self, file_path: str) -> tuple:
+        """根据文件路径检测代码所属子系统和上下文"""
+        path_lower = file_path.replace('\\', '/').lower()
+
+        subsystem_map = {
+            'gil': ('gil/gps', 'GPS定位/GNSS卫星定位状态'),
+            'cil': ('cil/ble', 'BLE蓝牙通信/CIL适配器'),
+            'can': ('can/vehicle', 'CAN总线/整车通信'),
+            'atdev': ('atdev/uart', 'AT设备/UART通信'),
+            'mos': ('mos/ota', 'MOS升级/固件管理'),
+            'apptools': ('apptools/app', '应用工具层'),
+            'task_statistic': ('task_statistic/metric', '任务统计/性能指标'),
+        }
+
+        for keyword, (subsystem, context) in subsystem_map.items():
+            if keyword in path_lower:
+                return subsystem, context
+
+        return ('unknown', '未分类代码')
 
     def _preprocess_c_code(self, content: str) -> str:
         """预处理C代码，使pycparser可以解析"""

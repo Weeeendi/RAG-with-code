@@ -1470,6 +1470,31 @@ class LazyVectorStore:
                                 rrf_score *= 1.2
                                 break
 
+                # 子系统上下文验证：GPS/定位相关查询不应匹配到BLE/其他子系统
+                metadata = item_info.get('metadata', {})
+                item_subsystem = metadata.get('subsystem', '')
+                item_context = metadata.get('context', '')
+
+                # 整车电源/开机相关查询，应该优先匹配 can/vehicle 子系统
+                if item_subsystem:
+                    query_lower = query.lower()
+                    # GPS/定位相关关键词
+                    gps_keywords = ['搜星', '定位', 'GPS', 'gil', '卫星', '位置', 'run_state']
+                    # 整车控制器相关关键词
+                    vehicle_keywords = ['控制器', '整车', 'CAN', 'FE01', '开机', '电源', 'VCU']
+
+                    is_gps_query = any(k in query_lower for k in gps_keywords)
+                    is_vehicle_query = any(k in query_lower for k in vehicle_keywords)
+
+                    # 如果是GPS相关查询，降低非GPS子系统的得分
+                    if is_gps_query and 'gps' not in item_subsystem.lower() and 'gil' not in item_subsystem.lower():
+                        if 'can' in item_subsystem.lower() or 'vehicle' in item_subsystem.lower():
+                            rrf_score *= 0.3
+
+                    # 如果是整车控制器查询，降低GPS子系统的得分
+                    if is_vehicle_query and ('gps' in item_subsystem.lower() or 'gil' in item_subsystem.lower()):
+                        rrf_score *= 0.3
+
                 final_results.append({
                     'id': doc_id,
                     'score': float(rrf_score),
@@ -1788,6 +1813,8 @@ class KnowledgeBase:
                     created_at=datetime.now().isoformat(),
                     metadata={
                         'node_type': node.get('type', 'unknown'),
+                        'subsystem': node.get('subsystem', ''),
+                        'context': node.get('context', ''),
                         'edges': self._get_edges_for_node(node_id, edges),
                         'keywords': self._extract_keywords(node)
                     }
