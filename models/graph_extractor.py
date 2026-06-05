@@ -535,6 +535,83 @@ class CodeGraphExtractor:
         return list(set(callees))
 
 
+class DPProtocolRelationExtractor:
+    """提取DP数据点与CAN协议的关系"""
+
+    def __init__(self, kb_path: str = "knowledge_base/raw/protocol_docs"):
+        self.kb_path = kb_path
+        self.dp_can_relations: List[dict] = []
+
+    def extract_from_protocol(self, file_path: str) -> List[dict]:
+        """从协议文档提取DP和CAN的映射关系"""
+        relations = []
+
+        try:
+            with open(file_path, 'rb') as f:
+                raw = f.read()
+            try:
+                from charset_normalizer import from_bytes
+                results = from_bytes(raw, steps=10)
+                best = results.best()
+                content = str(best) if best else raw.decode('utf-8', errors='replace')
+            except ImportError:
+                content = raw.decode('utf-8', errors='replace')
+        except Exception as e:
+            return relations
+
+        dp_pattern = r'DP\s*[:.]?\s*(\d+)|DP\s*ID\s*[:.\s]*0x([0-9A-Fa-f]+)|dp[_\s]*(id|data)'
+        can_pattern = r'0x([0-9A-Fa-f]{4,8})|CAN\s*(ID|报文|帧)|PGN\s*[:.\s]*0x([0-9A-Fa-f]+)'
+
+        dp_matches = list(re.finditer(dp_pattern, content, re.IGNORECASE))
+        can_matches = list(re.finditer(can_pattern, content, re.IGNORECASE))
+
+        for dp_match in dp_matches:
+            dp_value = dp_match.group(1) or dp_match.group(2) or "unknown"
+            dp_context = content[max(0, dp_match.start()-50):dp_match.end()+50]
+
+            related_cans = []
+            for can_match in can_matches:
+                if abs(can_match.start() - dp_match.start()) < 200:
+                    can_value = can_match.group(1) or can_match.group(3) or "unknown"
+                    related_cans.append(can_value)
+
+            relations.append({
+                "dp_id": dp_value,
+                "context": dp_context.replace('\n', ' ').strip(),
+                "related_can_ids": related_cans,
+                "source_file": os.path.basename(file_path)
+            })
+
+        self.dp_can_relations.extend(relations)
+        return relations
+
+    def process_all_protocols(self) -> List[dict]:
+        """处理所有协议文档"""
+        all_relations = []
+
+        if not os.path.exists(self.kb_path):
+            return all_relations
+
+        for file in os.listdir(self.kb_path):
+            ext = os.path.splitext(file)[1].lower()
+            if ext in {'.pdf', '.md', '.txt'}:
+                file_path = os.path.join(self.kb_path, file)
+                try:
+                    relations = self.extract_from_protocol(file_path)
+                    all_relations.extend(relations)
+                except Exception as e:
+                    print(f"Error processing {file}: {e}")
+
+        return all_relations
+
+    def save_relations(self, output_path: str = "knowledge_base/parsed/graph/dp_can_relations.json"):
+        """保存DP-CAN关系"""
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(self.dp_can_relations, f, ensure_ascii=False, indent=2)
+        print(f"[DPProtocolExtractor] Saved {len(self.dp_can_relations)} relations to {output_path}")
+
+
 if __name__ == "__main__":
     import sys
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
