@@ -236,8 +236,11 @@ class LLMMetadataTagger:
     def _clean_thinking_tags(self, content: str) -> str:
         """Remove <think>...</think> thinking tags from content"""
         import re
-        # Remove <think>...</think> patterns
-        cleaned = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+        # Use simpler pattern that works with Chinese characters
+        pattern = r'<think>[^"]*?(?:<[^"]*?>)*[^"]*?</think>'
+        cleaned = re.sub(pattern, '', content, flags=re.IGNORECASE)
+        # Also remove any remaining <think> and ]]> tags
+        cleaned = cleaned.replace('<think>', '').replace('</think>', '')
         return cleaned.strip()
 
     def _parse_metadata_tag(self, content: str, source_file: str) -> MetadataTag:
