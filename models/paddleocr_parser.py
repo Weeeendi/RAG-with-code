@@ -136,6 +136,11 @@ class PaddleOCRParser:
             for i, res in enumerate(result_data["layoutParsingResults"]):
                 markdown_text = res["markdown"]["text"]
 
+                # Convert HTML tables to Markdown (PaddleOCR outputs HTML tables)
+                from models.utils.text_cleaner import TextCleaner
+                tc = TextCleaner()
+                markdown_text = tc.html_table_to_markdown(markdown_text)
+
                 filtered_images = {}
                 for img_path, img_url in res["markdown"].get("images", {}).items():
                     if 'layout_det_res' not in img_path.lower():
