@@ -120,15 +120,25 @@ class QueryExpander:
         all_tokens = set(english_tokens) | set(chinese_bigrams)
 
         hex_pattern = re.compile(r'^(0x)?([0-9a-fA-F]+)$')
+        hex_in_token_pattern = re.compile(r'([0-9a-fA-F]{4,})', re.IGNORECASE)
         for token in english_tokens:
             expanded.add(token)
 
+            # Check if entire token is hex (e.g., "FE01" or "0xFE01")
             hex_match = hex_pattern.match(token)
             if hex_match:
                 hex_val = hex_match.group(2)
                 if len(hex_val) >= 2:
                     expanded.add(f"0x{hex_val}")
+                    expanded.add(f"0x00{hex_val}")
                     expanded.add(f"{token}")
+
+            # Find hex substrings anywhere in token (e.g., "FE01" in "FE01是什么")
+            for hex_match in hex_in_token_pattern.finditer(token):
+                hex_val = hex_match.group(1)
+                if len(hex_val) >= 2:
+                    expanded.add(f"0x{hex_val}")
+                    expanded.add(f"0x00{hex_val}")
 
 
             if token in self.synonym_dict:
@@ -1295,7 +1305,7 @@ class LazyVectorStore:
         BUSINESS_DOC_TYPES = {'business_doc', 'protocol_doc'}
 
         expander = QueryExpander()
-        expanded_queries = expander.expand(query)[:1]
+        expanded_queries = expander.expand(query)[:5]
         structured_query = expander.build_structured_query(query)
 
         # Use ordered dict to preserve FTS5 priority (business docs first)

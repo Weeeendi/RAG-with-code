@@ -92,11 +92,13 @@
         .cot-step { padding: 12px; background: #f9fafb; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid #8b5cf6; }
         .cot-step-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 600; font-size: 13px; }
         .cot-step-num { background: #8b5cf6; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
-        .cot-thought { background: #ede9fe; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
+        .cot-thought { background: #f3f4f6; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; color: #6b7280; font-style: italic; }
         .cot-action { background: #dbeafe; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; color: #1e40af; }
         .cot-observation { background: #dcfce7; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; font-size: 13px; color: #166534; }
         .cot-result { background: #fef3c7; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
         .cot-intent { background: #fce7f3; padding: 8px 12px; border-radius: 6px; margin-top: 8px; font-size: 13px; }
+        .cot-thinking-label { color: #9ca3af; font-weight: normal; }
+        .cot-final-answer { background: #fffb; padding: 12px; border-radius: 8px; margin-top: 12px; border: 1px solid #e5e7eb; }
 
         /* Version Snapshot */
         .version-card { padding: 12px; background: #f9fafb; border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; }
@@ -504,25 +506,43 @@
                     <span class="cot-step-num">第${idx+1}轮</span>
                 </div>`;
 
+            // Thought content - full text with grey italic style
             if (step.thought) {
-                const thoughtContent = typeof step.thought === 'string' ? step.thought : (step.thought.content || '');
+                let thoughtContent = '';
+                if (typeof step.thought === 'string') {
+                    thoughtContent = step.thought;
+                } else if (step.thought.content) {
+                    thoughtContent = step.thought.content;
+                }
                 if (thoughtContent) {
-                    html += `<div class="cot-thought"><strong>Thought:</strong> ${escapeHtml(thoughtContent.substring(0, 300))}</div>`;
+                    // Extract Thought sections from LLM output
+                    const thoughtMatch = thoughtContent.match(/##\s*Thought[^]*?(?=##\s*Action|$)/gi);
+                    if (thoughtMatch) {
+                        thoughtMatch.forEach(t => {
+                            const text = t.replace(/##\s*Thought\s*\d*\s*/gi, '').trim();
+                            if (text) {
+                                html += `<div class="cot-thought"><span class="cot-thinking-label">💭 推理:</span> ${escapeHtml(text)}</div>`;
+                            }
+                        });
+                    } else {
+                        // Fallback: show first 500 chars
+                        html += `<div class="cot-thought"><span class="cot-thinking-label">💭 推理:</span> ${escapeHtml(thoughtContent.substring(0, 500))}</div>`;
+                    }
                 }
             }
 
             if (step.query) {
-                html += `<div class="cot-action"><strong>Action:</strong> search("${escapeHtml(step.query)}")</div>`;
+                html += `<div class="cot-action"><strong>🔍 Action:</strong> search("${escapeHtml(step.query)}")</div>`;
             }
 
             if (step.tool) {
                 const args = JSON.stringify(step.arguments || {});
-                html += `<div class="cot-action"><strong>Action:</strong> ${escapeHtml(step.tool)}(${escapeHtml(args)})</div>`;
+                html += `<div class="cot-action"><strong>⚙️ Action:</strong> ${escapeHtml(step.tool)}(${escapeHtml(args)})</div>`;
             }
 
             if (step.results !== undefined) {
                 const count = Array.isArray(step.results) ? step.results.length : 'N/A';
-                html += `<div class="cot-observation"><strong>Observation:</strong> 检索到 ${count} 条结果</div>`;
+                html += `<div class="cot-observation"><strong>📊 Observation:</strong> 检索到 ${count} 条结果</div>`;
             }
 
             if (step.result) {
@@ -538,7 +558,7 @@
                     }
                 } else {
                     const error = step.result.error || 'Unknown error';
-                    html += `<div class="cot-result" style="background:#fee2e2;color:#dc2626;"><strong>Error:</strong> ${escapeHtml(String(error).substring(0, 100))}</div>`;
+                    html += `<div class="cot-result" style="background:#fee2e2;color:#dc2626;"><strong>❌ Error:</strong> ${escapeHtml(String(error).substring(0, 100))}</div>`;
                 }
             }
 
