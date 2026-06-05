@@ -243,69 +243,166 @@ class LLMMetadataTagger:
         cleaned = cleaned.replace('<think>', '').replace('</think>', '')
         return cleaned.strip()
 
-    def _parse_metadata_tag(self, content: str, source_file: str) -> MetadataTag:
-        content = self._clean_thinking_tags(content).strip()
+    def _extract_json_from_text(self, content: str) -> Optional[Dict]:
+        """从混杂文本中提取JSON，适配不遵循纯JSON约束的模型"""
+        import re
 
-        # Try to extract JSON from markdown code blocks
-        if content.startswith("```"):
-            parts = content.split("```")
-            for part in parts:
-                part = part.strip()
-                if part.startswith("{") or part.startswith("["):
-                    try:
-                        metadata = json.loads(part)
-                        return MetadataTag(
-                            department=metadata.get("department"),
-                            doc_type=metadata.get("doc_type"),
-                            confidentiality=metadata.get("confidentiality"),
-                            time_period=metadata.get("time_period"),
-                            source_file=source_file
-                        )
-                    except json.JSONDecodeError:
-                        continue
-
-        # Try direct JSON parse
-        if content.startswith("{") or content.startswith("["):
+        # 方法1：查找代码块内的JSON
+        json_block_pattern = r'```(?:json)?\s*\n?([^{}]*\{[^{}]*\}[^{}]*)\n?```'
+        for match in re.finditer(json_block_pattern, content, re.DOTALL):
             try:
-                metadata = json.loads(content)
-                return MetadataTag(
-                    department=metadata.get("department"),
-                    doc_type=metadata.get("doc_type"),
-                    confidentiality=metadata.get("confidentiality"),
-                    time_period=metadata.get("time_period"),
-                    source_file=source_file
-                )
+                return json.loads(match.group(1))
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        # 方法2：查找所有 {...} 模式的JSON对象
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        for match in re.finditer(json_pattern, content):
+            json_str = match.group()
+            try:
+                result = json.loads(json_str)
+                # 验证是否包含预期的键
+                if any(key in result for key in ['department', 'headings', 'summary', 'key_terms']):
+                    return result
             except json.JSONDecodeError:
                 pass
 
-        # Extract JSON using simple brace matching
-        start_idx = content.find('{')
-        if start_idx >= 0:
-            # Find matching closing brace
+        # 方法3：如果文本中有明确标记的JSON区域（包含 "{" 的区域）
+        json_start = content.find('{"')
+        if json_start >= 0:
+            # 尝试找到完整的JSON（带括号匹配）
             depth = 0
-            for i, c in enumerate(content[start_idx:], start_idx):
+            for i, c in enumerate(content[json_start:], json_start):
                 if c == '{':
                     depth += 1
                 elif c == '}':
                     depth -= 1
                     if depth == 0:
-                        json_str = content[start_idx:i+1]
                         try:
-                            metadata = json.loads(json_str)
-                            return MetadataTag(
-                                department=metadata.get("department"),
-                                doc_type=metadata.get("doc_type"),
-                                confidentiality=metadata.get("confidentiality"),
-                                time_period=metadata.get("time_period"),
-                                source_file=source_file
-                            )
-                        except json.JSONDecodeError as e:
-                            print(f"[LLMMetadataTagger] JSON decode error: {e}, json_str[:100]: {json_str[:100]}")
+                            return json.loads(content[json_start:i+1])
+                        except json.JSONDecodeError:
                             break
-                        break
 
-        print(f"[LLMMetadataTagger] Content parse error: content starts with {content[:50] if len(content) > 50 else content}")
-        return MetadataTag(source_file=source_file)
+        return None
+
+    def _parse_metadata_tag(self, content: str, source_file: str) -> MetadataTag:
+        content = self._clean_thinking_tags(content).strip()
+
+        # 先尝试提取JSON
+        extracted = self._extract_json_from_text(content)
+        if extracted and isinstance(extracted, dict):
+            return MetadataTag(
+                department=extracted.get("department"),
+                doc_type=extracted.get("doc_type"),
+                confidentiality=extracted.get("confidentiality"),
+                time_period=extracted.get("time_period"),
+                source_file=source_file
+            )
+
+        # JSON提取失败，从文本中提取关键信息作为fallback
+        return self._parse_metadata_from_text(content, source_file)
+
+    def _parse_metadata_from_text(self, content: str, source_file: str) -> MetadataTag:
+        """从非结构化文本中提取元数据的fallback方法"""
+        import re
+
+        metadata = {}
+
+        # 尝试提取 department
+        dept_patterns = [
+            r'部门[：:]\s*"?([^",\n]+)"?',
+            r'department[：:]\s*"?([^",\n]+)"?',
+            r'技术[部]*(研发|测试|产品)?部',
+        ]
+        for pattern in dept_patterns:
+            match = re.search(pattern, content)
+            if match:
+                metadata['department'] = match.group(1).strip()
+                break
+
+        # 尝试提取 doc_type
+        doc_patterns = [
+            r'文档类型[：:]\s*"?([^",\n]+)"?',
+            r'doc_type[：:]\s*"?([^",\n]+)"?',
+            r'(技术文档|协议文档|规范|手册|说明书|报告|周报|月报)',
+        ]
+        for pattern in doc_patterns:
+            match = re.search(pattern, content)
+            if match:
+                metadata['doc_type'] = match.group(1).strip()
+                break
+
+        # 尝试提取 confidentiality
+        conf_patterns = [
+            r'保密级别[：:]\s*"?([^",\n]+)"?',
+            r'(公开|内部|机密|秘密)',
+        ]
+        for pattern in conf_patterns:
+            match = re.search(pattern, content)
+            if match:
+                metadata['confidentiality'] = match.group(1).strip()
+                break
+
+        return MetadataTag(
+            department=metadata.get("department"),
+            doc_type=metadata.get("doc_type"),
+            confidentiality=metadata.get("confidentiality"),
+            time_period=metadata.get("time_period"),
+            source_file=source_file
+        )
+
+    def _parse_content_from_text(self, content: str) -> Dict[str, Any]:
+        """从非结构化文本中提取内容的fallback方法"""
+        import re
+
+        result = {
+            "headings": [],
+            "tables": [],
+            "code_blocks": [],
+            "key_terms": [],
+            "summary": ""
+        }
+
+        # 提取标题（以 # 开头的行，排除Page N格式）
+        heading_pattern = r'^#+\s*(.+)$'
+        page_pattern = r'^Page\s*\d+$'
+        for line in content.split('\n'):
+            match = re.match(heading_pattern, line.strip())
+            if match:
+                heading_text = match.group(1).strip()
+                # 过滤掉Page N和太长的标题
+                if len(heading_text) < 50 and heading_text not in result["headings"]:
+                    if not re.match(page_pattern, heading_text):
+                        result["headings"].append(heading_text)
+
+        # 提取关键术语（常见的BLE/物联网相关术语）
+        term_patterns = [
+            r'\b(BLE|Bluetooth|HID|RSSI|IOT|BLE|BTstack)\b',
+            r'\b(OTA|DFU|升级|固件)\b',
+            r'\b(CAN|UART|SPI|I2C|串口)\b',
+            r'\b(蓝牙|WiFi|无线)\b',
+            r'\b(控制器|MCU|BMS|电池)\b',
+        ]
+        found_terms = set()
+        for pattern in term_patterns:
+            for match in re.finditer(pattern, content, re.IGNORECASE):
+                term = match.group().strip()
+                if term and len(term) > 2:
+                    found_terms.add(term)
+        result["key_terms"] = list(found_terms)[:10]
+
+        # 提取摘要（第一段非HTML非标题的文字）
+        paragraphs = content.split('\n\n')
+        for para in paragraphs:
+            para = para.strip()
+            # 跳过HTML表格、太短的或标题
+            if len(para) > 50 and not para.startswith('#') and not para.startswith('```') and not para.startswith('<table') and not '<td' in para:
+                # 清理特殊字符
+                summary = re.sub(r'[*#\[\]`]', '', para)
+                result["summary"] = summary[:200]
+                break
+
+        return result
 
     def reorganize_content(self, markdown_text: str, page_num: int = 0) -> Dict[str, Any]:
         system_prompt = """你是一个结构化处理助手。你的输出**必须**是有效的JSON格式，不要包含任何其他文字。
@@ -365,42 +462,19 @@ class LLMMetadataTagger:
                     return {"headings": [], "tables": [], "code_blocks": [], "key_terms": [], "summary": ""}
                 content = self._clean_thinking_tags(content).strip()
 
-                # Try to extract JSON from markdown code blocks
-                if content.startswith("```"):
-                    parts = content.split("```")
-                    for part in parts:
-                        part = part.strip()
-                        if part.startswith("{") or part.startswith("["):
-                            try:
-                                return json.loads(part)
-                            except json.JSONDecodeError:
-                                continue
+                # 使用统一的JSON提取方法（适配不遵循纯JSON约束的模型）
+                extracted = self._extract_json_from_text(content)
+                if extracted and isinstance(extracted, dict) and 'summary' in extracted:
+                    return {
+                        "headings": extracted.get("headings", []),
+                        "tables": extracted.get("tables", []),
+                        "code_blocks": extracted.get("code_blocks", []),
+                        "key_terms": extracted.get("key_terms", []),
+                        "summary": extracted.get("summary", "")
+                    }
 
-                # Try direct JSON parse
-                if content.startswith("{") or content.startswith("["):
-                    try:
-                        return json.loads(content)
-                    except json.JSONDecodeError:
-                        pass
-
-                # Extract JSON using simple brace matching
-                start_idx = content.find('{')
-                if start_idx >= 0:
-                    depth = 0
-                    for i, c in enumerate(content[start_idx:], start_idx):
-                        if c == '{':
-                            depth += 1
-                        elif c == '}':
-                            depth -= 1
-                            if depth == 0:
-                                try:
-                                    return json.loads(content[start_idx:i+1])
-                                except json.JSONDecodeError:
-                                    break
-                                break
-
-                print(f"[LLMMetadataTagger] Content parse error: content starts with {content[:50] if len(content) > 50 else content}")
-                return {"headings": [], "tables": [], "code_blocks": [], "key_terms": [], "summary": ""}
+                # Fallback: 使用原文分析提取标题和关键术语（而非LLM响应）
+                return self._parse_content_from_text(markdown_text)
         except Exception as e:
             print(f"[LLMMetadataTagger] Reorganize error: {e}")
 
