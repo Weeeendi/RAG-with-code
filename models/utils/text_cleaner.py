@@ -338,6 +338,9 @@ class TextCleaner:
             text = self.remove_headers_footers(text)
             text = self.merge_broken_lines(text)
 
+        # Final sanitization: remove control chars, BOM, surrogates
+        text = sanitize_text(text)
+
         return text
 
     def extract_metadata(self, text: str, source_file: str = None) -> Dict[str, Any]:
@@ -556,6 +559,21 @@ class EncodingConverter:
 
     @staticmethod
     def detect_and_convert(raw_bytes: bytes) -> Tuple[str, str]:
+        """Detect encoding using charset_normalizer + chardet fallback, convert to UTF-8."""
+        # Try charset-normalizer first (more accurate for mixed/corrupted text)
+        try:
+            from charset_normalizer import from_bytes
+            results = from_bytes(raw_bytes, steps=10)
+            best = results.best()
+            if best is not None:
+                encoding = str(best)
+                text = str(results.best())
+                if encoding.lower() not in ['ascii']:
+                    return encoding, text
+        except ImportError:
+            pass
+
+        # Fallback to chardet
         result = chardet.detect(raw_bytes)
         encoding = result.get('encoding', 'utf-8')
         confidence = result.get('confidence', 0)
@@ -582,12 +600,41 @@ class EncodingConverter:
             text = raw_bytes.decode('utf-8', errors='replace')
             return 'utf-8 (fallback)', text
 
-    @staticmethod
-    def convert_file(file_path: str) -> Tuple[str, str]:
-        with open(file_path, 'rb') as f:
-            raw_bytes = f.read()
-        return EncodingConverter.detect_and_convert(raw_bytes)
+
+def sanitize_text(text: str) -> str:
+    """
+    Clean text: remove BOM, zero-width chars, control chars, surrogate pairs.
+    Must be called on all text before embedding.
+    """
+    if not text:
+        return text
+
+    # Remove BOM
+    text = text.replace('﻿', '').replace('￾', '')
+
+    # Remove C0/C1 control characters (keep \n, \t, \r)
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+
+    # Remove isolated surrogates
+    text = text.encode('utf-8', 'surrogatepass').decode('utf-8', 'replace')
+
+    # Merge 3+ consecutive empty lines to 2
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    return text.strip()
+
+
+def looks_corrupted(text: str, threshold: float = 0.05) -> bool:
+    """Check if text appears corrupted (high ratio of non-printable/bad chars)."""
+    if not text:
+        return True
+    bad = sum(1 for c in text if ord(c) < 32 or (0x80 <= ord(c) <= 0xa0))
+    return bad / len(text) > threshold
 
 
 def read_file_with_encoding(file_path: str) -> Tuple[str, str]:
-    return EncodingConverter.convert_file(file_path)
+    with open(file_path, 'rb') as f:
+        raw_bytes = f.read()
+    encoding, text = EncodingConverter.detect_and_convert(raw_bytes)
+    text = sanitize_text(text)
+    return encoding, text

@@ -577,7 +577,20 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['interactive', 'api'], default='interactive',
                         help='运行模式: interactive=交互模式, api=REST API服务')
     parser.add_argument('--port', type=int, default=8000, help='API服务端口')
+    parser.add_argument('--force-reindex', action='store_true',
+                        help='强制全量重索引（清除现有c_code数据后重新处理）')
     args = parser.parse_args()
+
+    if args.force_reindex:
+        print("强制全量重索引模式 - 将清除现有c_code索引数据")
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM knowledge_items WHERE category = 'c_code'")
+        cursor.execute("DELETE FROM knowledge_items WHERE type LIKE 'graph_%'")
+        conn.commit()
+        conn.close()
+        print("已清除 c_code 和 graph 类别数据")
 
     if args.mode == 'api':
         print(f"启动REST API服务，端口: {args.port}")

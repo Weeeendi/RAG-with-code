@@ -231,16 +231,14 @@ class ToolExecutor:
 
     def _parse_txt(self, file_path: str, **kwargs) -> ToolResult:
         try:
-            # Try UTF-8 first, fallback to GBK for Chinese Windows files
-            for encoding in ('utf-8', 'gbk', 'gb2312'):
-                try:
-                    with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
-                        content = f.read()
-                    if content.strip():
-                        return ToolResult(success=True, data=content)
-                except Exception:
-                    continue
-            return ToolResult(success=False, data=None, error="无法解码文件")
+            from models.utils.text_cleaner import read_file_with_encoding, looks_corrupted
+            encoding, content = read_file_with_encoding(file_path)
+            if content.strip():
+                if looks_corrupted(content, threshold=0.05):
+                    import logging
+                    logging.warning(f"⚠️ possible corrupted text in {file_path} — first 100 chars: {repr(content[:100])}")
+                return ToolResult(success=True, data=content)
+            return ToolResult(success=False, data=None, error="文件内容为空")
         except Exception as e:
             return ToolResult(success=False, data=None, error=str(e))
 
