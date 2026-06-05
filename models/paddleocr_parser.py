@@ -173,7 +173,11 @@ class LLMMetadataTagger:
         self.base_url = base_url or MINIMAX_BASE_URL
 
     def extract_metadata(self, text: str, source_file: str = "") -> MetadataTag:
-        prompt = f"""分析以下文档内容，提取元数据标签。
+        system_prompt = """你是一个元数据提取助手。你的输出**必须**是有效的JSON格式，不要包含任何其他文字。
+输出格式（必须是这个JSON，不能有其他内容）：
+{"department": "...", "doc_type": "...", "confidentiality": "...", "time_period": "..."}"""
+
+        user_prompt = f"""分析以下文档内容，提取元数据标签。
 
 文档来源: {source_file}
 文档内容预览:
@@ -185,7 +189,7 @@ class LLMMetadataTagger:
 - confidentiality: 密级，如"公开"、"内部"、"机密"等
 - time_period: 时间期间，如"2024-Q3"、"2024年"等，使用标准格式
 
-请以JSON格式输出：
+输出格式（必须是JSON，不能有其他内容）：
 {{"department": "...", "doc_type": "...", "confidentiality": "...", "time_period": "..."}}"""
 
         try:
@@ -197,7 +201,10 @@ class LLMMetadataTagger:
                 "model": "MiniMax-M2.7",
                 "max_tokens": 200,
                 "temperature": 0.3,
-                "messages": [{"role": "user", "content": prompt}]
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
             }
 
             session = requests.Session()
@@ -220,16 +227,44 @@ class LLMMetadataTagger:
                 except (json.JSONDecodeError, KeyError) as e:
                     print(f"[LLMMetadataTagger] JSON parse error: {e}, response text: {response.text[:200]}")
                     return MetadataTag(source_file=source_file)
-                content = content.strip()
-                if content.startswith("```"):
-                    content = content.split("```")[1]
-                    if content.startswith("json"):
-                        content = content[4:]
-                try:
-                    metadata = json.loads(content)
-                except json.JSONDecodeError as e:
-                    print(f"[LLMMetadataTagger] Content parse error: {e}, content: {content[:200]}")
-                    return MetadataTag(source_file=source_file)
+                return self._parse_metadata_tag(content, source_file)
+        except Exception as e:
+            print(f"[LLMMetadataTagger] Error: {e}")
+
+        return MetadataTag(source_file=source_file)
+
+    def _clean_thinking_tags(self, content: str) -> str:
+        """Remove <think>...</think> thinking tags from content"""
+        import re
+        # Remove <think>...</think> patterns
+        cleaned = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+        return cleaned.strip()
+
+    def _parse_metadata_tag(self, content: str, source_file: str) -> MetadataTag:
+        content = self._clean_thinking_tags(content).strip()
+
+        # Try to extract JSON from markdown code blocks
+        if content.startswith("```"):
+            parts = content.split("```")
+            for part in parts:
+                part = part.strip()
+                if part.startswith("{") or part.startswith("["):
+                    try:
+                        metadata = json.loads(part)
+                        return MetadataTag(
+                            department=metadata.get("department"),
+                            doc_type=metadata.get("doc_type"),
+                            confidentiality=metadata.get("confidentiality"),
+                            time_period=metadata.get("time_period"),
+                            source_file=source_file
+                        )
+                    except json.JSONDecodeError:
+                        continue
+
+        # Try direct JSON parse
+        if content.startswith("{") or content.startswith("["):
+            try:
+                metadata = json.loads(content)
                 return MetadataTag(
                     department=metadata.get("department"),
                     doc_type=metadata.get("doc_type"),
@@ -237,13 +272,44 @@ class LLMMetadataTagger:
                     time_period=metadata.get("time_period"),
                     source_file=source_file
                 )
-        except Exception as e:
-            print(f"[LLMMetadataTagger] Error: {e}")
+            except json.JSONDecodeError:
+                pass
 
+        # Extract JSON using simple brace matching
+        start_idx = content.find('{')
+        if start_idx >= 0:
+            # Find matching closing brace
+            depth = 0
+            for i, c in enumerate(content[start_idx:], start_idx):
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0:
+                        json_str = content[start_idx:i+1]
+                        try:
+                            metadata = json.loads(json_str)
+                            return MetadataTag(
+                                department=metadata.get("department"),
+                                doc_type=metadata.get("doc_type"),
+                                confidentiality=metadata.get("confidentiality"),
+                                time_period=metadata.get("time_period"),
+                                source_file=source_file
+                            )
+                        except json.JSONDecodeError as e:
+                            print(f"[LLMMetadataTagger] JSON decode error: {e}, json_str[:100]: {json_str[:100]}")
+                            break
+                        break
+
+        print(f"[LLMMetadataTagger] Content parse error: content starts with {content[:50] if len(content) > 50 else content}")
         return MetadataTag(source_file=source_file)
 
     def reorganize_content(self, markdown_text: str, page_num: int = 0) -> Dict[str, Any]:
-        prompt = f"""分析以下Markdown内容，进行结构化处理。
+        system_prompt = """你是一个结构化处理助手。你的输出**必须**是有效的JSON格式，不要包含任何其他文字。
+输出格式（必须是这个JSON，不能有其他内容）：
+{"headings": ["标题1", "标题2", ...], "tables": ["表格1的Markdown", "表格2的Markdown", ...], "code_blocks": ["代码块1", "代码块2", ...], "key_terms": ["术语1", "术语2", ...], "summary": "本页内容摘要"}"""
+
+        user_prompt = f"""分析以下Markdown内容，进行结构化处理。
 
 页码: {page_num}
 
@@ -256,14 +322,8 @@ class LLMMetadataTagger:
 3. 识别关键术语并标注
 4. 识别代码块并标注语言
 
-请以JSON格式输出：
-{{
-  "headings": ["标题1", "标题2", ...],
-  "tables": ["表格1的Markdown", "表格2的Markdown", ...],
-  "code_blocks": ["代码块1", "代码块2", ...],
-  "key_terms": ["术语1", "术语2", ...],
-  "summary": "本页内容摘要"
-}}"""
+输出格式（必须是JSON，不能有其他内容）：
+{{"headings": ["标题1", "标题2", ...], "tables": ["表格1的Markdown", "表格2的Markdown", ...], "code_blocks": ["代码块1", "代码块2", ...], "key_terms": ["术语1", "术语2", ...], "summary": "本页内容摘要"}}"""
 
         try:
             headers = {
@@ -274,7 +334,10 @@ class LLMMetadataTagger:
                 "model": "MiniMax-M2.7",
                 "max_tokens": 800,
                 "temperature": 0.3,
-                "messages": [{"role": "user", "content": prompt}]
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
             }
 
             session = requests.Session()
@@ -297,16 +360,44 @@ class LLMMetadataTagger:
                 except (json.JSONDecodeError, KeyError) as e:
                     print(f"[LLMMetadataTagger] Reorganize JSON error: {e}, response: {response.text[:200]}")
                     return {"headings": [], "tables": [], "code_blocks": [], "key_terms": [], "summary": ""}
-                content = content.strip()
+                content = self._clean_thinking_tags(content).strip()
+
+                # Try to extract JSON from markdown code blocks
                 if content.startswith("```"):
-                    content = content.split("```")[1]
-                    if content.startswith("json"):
-                        content = content[4:]
-                try:
-                    return json.loads(content)
-                except json.JSONDecodeError as e:
-                    print(f"[LLMMetadataTagger] Content parse error: {e}, content: {content[:200]}")
-                    return {"headings": [], "tables": [], "code_blocks": [], "key_terms": [], "summary": ""}
+                    parts = content.split("```")
+                    for part in parts:
+                        part = part.strip()
+                        if part.startswith("{") or part.startswith("["):
+                            try:
+                                return json.loads(part)
+                            except json.JSONDecodeError:
+                                continue
+
+                # Try direct JSON parse
+                if content.startswith("{") or content.startswith("["):
+                    try:
+                        return json.loads(content)
+                    except json.JSONDecodeError:
+                        pass
+
+                # Extract JSON using simple brace matching
+                start_idx = content.find('{')
+                if start_idx >= 0:
+                    depth = 0
+                    for i, c in enumerate(content[start_idx:], start_idx):
+                        if c == '{':
+                            depth += 1
+                        elif c == '}':
+                            depth -= 1
+                            if depth == 0:
+                                try:
+                                    return json.loads(content[start_idx:i+1])
+                                except json.JSONDecodeError:
+                                    break
+                                break
+
+                print(f"[LLMMetadataTagger] Content parse error: content starts with {content[:50] if len(content) > 50 else content}")
+                return {"headings": [], "tables": [], "code_blocks": [], "key_terms": [], "summary": ""}
         except Exception as e:
             print(f"[LLMMetadataTagger] Reorganize error: {e}")
 
