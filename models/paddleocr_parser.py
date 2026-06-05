@@ -91,22 +91,31 @@ class PaddleOCRParser:
                 print(f"[PaddleOCR] Polling error: {job_result.status_code}")
                 break
 
-            state = job_result.json()["data"]["state"]
+            result_json = job_result.json()
+            state = result_json["data"]["state"]
+
             if state == 'pending':
                 print("[PaddleOCR] Job pending...")
             elif state == 'running':
                 try:
-                    total = job_result.json()['data']['extractProgress']['totalPages']
-                    extracted = job_result.json()['data']['extractProgress']['extractedPages']
+                    progress = result_json['data'].get('extractProgress', {})
+                    total = progress.get('totalPages', 0)
+                    extracted = progress.get('extractedPages', 0)
                     print(f"[PaddleOCR] Running... pages: {extracted}/{total}")
-                except KeyError:
+                except (KeyError, TypeError):
                     print("[PaddleOCR] Running...")
             elif state == 'done':
-                extracted = job_result.json()['data']['extractProgress']['extractedPages']
-                print(f"[PaddleOCR] Done! Extracted {extracted} pages")
-                return job_result.json()['data']['resultUrl']['jsonUrl']
+                try:
+                    progress = result_json['data'].get('extractProgress', {})
+                    extracted = progress.get('extractedPages', 0)
+                    start_time = progress.get('startTime', 'N/A')
+                    end_time = progress.get('endTime', 'N/A')
+                    print(f"[PaddleOCR] Done! Extracted {extracted} pages, start: {start_time}, end: {end_time}")
+                except (KeyError, TypeError):
+                    print(f"[PaddleOCR] Done! pages: {extracted if 'extracted' in dir() else 'N/A'}")
+                return result_json['data']['resultUrl']['jsonUrl']
             elif state == "failed":
-                error = job_result.json()['data']['errorMsg']
+                error = result_json['data'].get('errorMsg', 'Unknown error')
                 print(f"[PaddleOCR] Failed: {error}")
                 return None
 

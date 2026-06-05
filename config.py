@@ -6,7 +6,7 @@ MINIMAX_BASE_URL = "https://api.minimax.chat/v1"
 
 PADDLEOCR_TOKEN = "29d2c8c889390dd177ef650c0a843e2b504a4266"
 PADDLEOCR_API_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
-PADDLEOCR_MODEL = "PaddleOCR-VL-1.5"
+PADDLEOCR_MODEL = "PaddleOCR-VL-1.6"
 
 DB_PATH = "data/metadata.db"
 VECTOR_DIR = "knowledge_base/vectorized"
