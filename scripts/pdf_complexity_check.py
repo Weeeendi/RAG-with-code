@@ -36,10 +36,15 @@ def analyze_pdf_complexity(file_path: str) -> dict:
     try:
         with pdfplumber.open(file_path) as pdf:
             for page in pdf.pages[:5]:  # 只检查前5页
-                if page.tables:
-                    table_count += len(page.tables)
-                if page.images:
-                    image_count += len(page.images)
+# 使用正确的API: extract_tables() 而不是 .tables
+                tables = page.extract_tables() if hasattr(page, 'extract_tables') else []
+                if tables:
+                    table_count += len(tables)
+
+                # 检查图片数量
+                images = page.images if hasattr(page, 'images') else []
+                if images:
+                    image_count += len(images)
 
                 # 检查文本质量（乱码率）
                 text = page.extract_text() or ""
